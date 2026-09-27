@@ -38,6 +38,7 @@ from poketokenbar_windows.ui import (
     MainWindow,
     RefreshResult,
     TrayController,
+    _icon_from_sprite,
     _migrate_legacy_settings,
     theme_stylesheet,
     tray_tooltip,
@@ -1001,6 +1002,24 @@ class UITests(unittest.TestCase):
         controller.set_enabled(True)
 
         self.assertTrue(controller.pet.reveal_timer.isActive())
+
+    def test_egg_tray_icon_fills_the_available_area(self):
+        sprite = QPixmap(96, 96)
+        sprite.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(sprite)
+        painter.fillRect(34, 34, 28, 30, QColor("green"))
+        painter.end()
+        path = Path(self.tmp.name) / "egg.png"
+        self.assertTrue(sprite.save(str(path)))
+
+        image = _icon_from_sprite(path, fallback_egg=True).pixmap(16, 16).toImage()
+        visible = [
+            (x, y) for y in range(image.height()) for x in range(image.width())
+            if image.pixelColor(x, y).alpha() > 8
+        ]
+        self.assertTrue(visible)
+        self.assertGreaterEqual(max(x for x, _ in visible) - min(x for x, _ in visible) + 1, 12)
+        self.assertGreaterEqual(max(y for _, y in visible) - min(y for _, y in visible) + 1, 13)
 
     def test_floating_pet_menu_matches_tray_order_and_labels(self):
         pet = FloatingPetWindow(96)

@@ -430,11 +430,45 @@ def _muted_pixmap(pix: QPixmap) -> QPixmap:
     return QPixmap.fromImage(image)
 
 
+def _trim_transparent_padding(pix: QPixmap) -> QPixmap:
+    image = pix.toImage()
+    left, top = image.width(), image.height()
+    right = bottom = -1
+    for y in range(image.height()):
+        for x in range(image.width()):
+            if image.pixelColor(x, y).alpha() > 8:
+                left, top = min(left, x), min(top, y)
+                right, bottom = max(right, x), max(bottom, y)
+    if right < left:
+        return pix
+    return pix.copy(left, top, right - left + 1, bottom - top + 1)
+
+
 def _icon_from_sprite(path: Path | None, *, fallback_egg: bool = False) -> QIcon:
     pix = _sprite_pixmap(path, 128)
     if pix.isNull():
         pix = _egg_pixmap(128) if fallback_egg else _pokeball_pixmap(128)
-    return QIcon(pix)
+    if not fallback_egg:
+        return QIcon(pix)
+
+    # PokeAPI's egg fills only about a third of its transparent 96px canvas.
+    # Trim that padding for the tray without changing the sprite elsewhere.
+    egg = _trim_transparent_padding(pix)
+    icon = QIcon()
+    for size in (16, 20, 24, 32, 48, 64, 128):
+        margin = max(1, size // 16)
+        scaled = egg.scaled(
+            size - 2 * margin, size - 2 * margin,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+        canvas = QPixmap(size, size)
+        canvas.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(canvas)
+        painter.drawPixmap((size - scaled.width()) // 2, (size - scaled.height()) // 2, scaled)
+        painter.end()
+        icon.addPixmap(canvas)
+    return icon
 
 
 def _clear_layout(layout) -> None:
