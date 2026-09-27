@@ -1,10 +1,10 @@
 # Windows versioning and releases
 
-The package version lives in `src/poketokenbar_windows/__init__.py`. Packaging, client identifiers, the EXE Windows version resource, `build-info.json` and the UI build label derive from it. A build from the exact matching Windows tag displays `vX.Y.Z`; every other build displays `vX.Y.Z-dev` with its short commit. The numeric EXE file version remains the four-part Windows form (for example, `1.0.0.0`), while its string version includes the build label.
+The package version lives in `src/poketokenbar_windows/__init__.py`. Packaging, client identifiers, the EXE Windows version resource, `build-info.json` and the UI build label derive from it. A build from the exact matching Windows tag displays `vX.Y.Z` in the footer and `vX.Y.Z · SHA` in About; every other build displays `vX.Y.Z-dev` in the footer and includes its short commit in About. The numeric EXE file version remains the four-part Windows form (for example, `1.0.0.0`), while its string version includes the build label.
 
 - `v0.1.0` identifies the historical Qt Widgets snapshot at `3377ff1db3949fc7d997ae555d373f4c3f4343b6`. It aliases `bruno/ultima-fea-pero-estable-2026-09-01`; no new build or retrospective Release was made.
 - Intermediate QML builds are identified by commit SHA.
-- `v1.0.0` will identify the first formal QML release, at the merged commit of PR #13. Later `1.x` versions describe this Windows QML line. They do not encode upstream version parity.
+- `v1.0.0` will identify the first formal QML release, at the final validated commit containing PR #13 and its release fixes. Later `1.x` versions describe this Windows QML line. They do not encode upstream version parity.
 - This small experimental repository uses normal Releases and no separate prerelease channel. A Release is useful for a stable download URL, notes and a verifiable ZIP, not required for every development commit.
 
 ## First QML Release checklist
