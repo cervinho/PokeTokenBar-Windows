@@ -13,10 +13,10 @@ A native Windows port of [chattymin/PokeTokenBar](https://github.com/chattymin/P
 - Animated Gen-V Pokemon sprites with static fallback, fetched and cached at runtime
 - Egg -> hatch -> real evolution path -> graduation progression
 - Upstream balance values: 5M hatch threshold; 750M / 1.875B / 3B / 6B graduation totals by rarity
-- 25 natures, PokeAPI capture-rate rarity, shiny hatches, and Shiny Charm
+- 25 natures with localized display names in Spanish and Galician, PokeAPI capture-rate rarity, shiny hatches, and Shiny Charm
 - Bag and token shop: Rare Candy, Mint, Shiny Charm, normal/Uncommon/Rare eggs
-- Separate Home, Collection, Bag, Shop, and Settings areas; Pokédex with rarity filters and 24-species pages, owned Shiny variant toggle, separate catch history with evolution stages, and short in-app celebrations
-- Keyboard navigation with Tab/Shift+Tab, visible focus and accessible control names; scrollable pages keep the focused control in view
+- Separate Home, Collection, Bag, Shop, and Settings areas; Pokédex with rarity filters and pages sized to the visible grid, owned Shiny variant toggle, separate catch history with evolution stages, and short in-app celebrations
+- Keyboard navigation with Tab/Shift+Tab, F5 to refresh while the panel is focused, and Left/Right to browse Pokédex pages or details; visible focus and accessible control names keep controls reachable
 - Configurable light/dark/system theme, refresh interval, limit thresholds, used/remaining percentages, tray fields, notifications, Pokémon-name language, and save import/export
 - One upstream-style segmented Used/Remaining selector shared by Home, tray, and desktop-pet hover; compact surfaces use "left", Home gauges follow the selected mode, while warning/critical copy, thresholds, rewards, and risk colors always mean quota used
 - A shared Time left/Date & time selector formats resets in QML Home and the timing information shown by the tray and floating pet, including forecasts and reset-credit expiry

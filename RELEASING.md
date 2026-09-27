@@ -4,10 +4,10 @@ The package version lives in `src/poketokenbar_windows/__init__.py`. Packaging, 
 
 - `v0.1.0` identifies the historical Qt Widgets snapshot at `3377ff1db3949fc7d997ae555d373f4c3f4343b6`. It aliases `bruno/ultima-fea-pero-estable-2026-09-01`; no new build or retrospective Release was made.
 - Intermediate QML builds are identified by commit SHA.
-- `v1.0.0` will identify the first formal QML release, at the final validated commit containing PR #13 and its release fixes. Later `1.x` versions describe this Windows QML line. They do not encode upstream version parity.
+- `v1.0.0` identifies the first formal QML release, at the final validated commit containing PR #13 and its release fixes. Later `1.x` versions describe this Windows QML line. They do not encode upstream version parity.
 - This small experimental repository uses normal Releases and no separate prerelease channel. A Release is useful for a stable download URL, notes and a verifiable ZIP, not required for every development commit.
 
-## First QML Release checklist
+## First QML Release checklist (historical)
 
 1. Review and merge the PR, update local `master`, and verify its HEAD matches `origin/master`. Set `__version__` to the release number **before** merging.
 2. Resolve the local tag-name collision: this checkout has upstream's `v1.0.0` tag, while `origin` does not. Preserve upstream's ref under a namespaced local tag if needed, then remove only the local unnamespaced upstream tag. Do not alter upstream's remote tag.
