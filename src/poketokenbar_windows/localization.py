@@ -2,8 +2,32 @@ from __future__ import annotations
 
 from typing import Any
 
+from .pokemon import NATURES
+
 SUPPORTED_LANGUAGES = ("en", "es", "gl")
 DEFAULT_LANGUAGE = "en"
+
+# Saved Pokémon retain canonical English nature names. These labels are display-only.
+_NATURE_TRANSLATIONS = {
+    "es": (
+        "Fuerte", "Huraña", "Audaz", "Firme", "Pícara",
+        "Osada", "Dócil", "Plácida", "Agitada", "Floja",
+        "Miedosa", "Activa", "Seria", "Alegre", "Ingenua",
+        "Modesta", "Afable", "Mansa", "Tímida", "Alocada",
+        "Serena", "Amable", "Grosera", "Cauta", "Rara",
+    ),
+    "gl": (
+        "Forte", "Solitaria", "Valente", "Firme", "Pícara",
+        "Afouta", "Dócil", "Relaxada", "Travesa", "Laxa",
+        "Medorenta", "Impaciente", "Seria", "Alegre", "Inxenua",
+        "Modesta", "Afable", "Calada", "Tímida", "Impulsiva",
+        "Serena", "Amable", "Descarada", "Coidadosa", "Rara",
+    ),
+}
+_NATURE_LABELS = {
+    language: dict(zip(NATURES, labels))
+    for language, labels in _NATURE_TRANSLATIONS.items()
+}
 
 LANGUAGE_OPTIONS = (
     {"key": "en", "label": "English"},
@@ -746,6 +770,11 @@ _SURFACE_PHRASES = {
 def normalize_language(language: Any) -> str:
     candidate = str(language or "").strip().lower()
     return candidate if candidate in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+
+
+def localized_nature(nature: str, language: Any) -> str:
+    """Translate a canonical nature for display without changing saved state."""
+    return _NATURE_LABELS.get(normalize_language(language), {}).get(nature, nature)
 
 
 def ui_strings(language: Any) -> dict[str, str]:

@@ -565,6 +565,18 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertEqual(self.root.property("selectedDexIndex"), -1)
         self.assertEqual(self.window.view_model.dexPage, 2)
 
+    def test_natures_follow_display_language_without_changing_saved_state(self):
+        for language, label in (("gl", "Forte"), ("es", "Fuerte"), ("en", "Hardy")):
+            self.state.language = language
+            self.window.render(RefreshResult(
+                UsageSnapshot(scanned_at=datetime.now(timezone.utc)),
+                {}, {}, self.state, [], None, "Pokemon 2",
+            ))
+            self.assertIn(label, self.window.view_model.companionSubtitle)
+            self.assertIn(label, self.window.view_model.catches[0]["meta"])
+            self.assertEqual(self.state.mon.nature, "Hardy")
+            self.assertEqual(self.state.catches[0].nature, "Hardy")
+
     def test_catch_log_renders_evolution_arrows(self):
         state = GameState(
             mon=MonState(1, [1, 2, 3], 1, 10, "common", False, "Hardy"),

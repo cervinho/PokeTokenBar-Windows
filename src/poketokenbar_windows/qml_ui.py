@@ -50,6 +50,7 @@ from .notifications import (
 )
 from .localization import (
     LANGUAGE_OPTIONS,
+    localized_nature,
     normalize_language,
     text as translated_text,
     ui_strings,
@@ -536,7 +537,7 @@ class QmlViewModel(QObject):
             shiny = "✨ " if mon.is_shiny else ""
             rarity = self._tr(mon.rarity)
             subtitle = (
-                f"{shiny}{rarity} · {mon.nature} {self._tr('nature')} · "
+                f"{shiny}{rarity} · {localized_nature(mon.nature, language)} {self._tr('nature')} · "
                 f"{self._tr('stage')} {mon.stage_index + 1}/{len(mon.path_ids)}"
             )
             value = mon.used_at_stage
@@ -767,7 +768,7 @@ class QmlViewModel(QObject):
                 {
                     "name": self.api.localized_name(display_id, self._language()),
                     "number": f"#{display_id:03d}",
-                    "meta": f"{self._tr(catch.rarity)} · {catch.nature} · {catch.caught_at[:10]}",
+                    "meta": f"{self._tr(catch.rarity)} · {localized_nature(catch.nature, self._language())} · {catch.caught_at[:10]}",
                     "shiny": bool(catch.is_shiny),
                     "current": is_current,
                     "description": (
