@@ -609,6 +609,50 @@ class QmlKeyboardTests(unittest.TestCase):
         ]
         self.assertTrue(any(arrow.isVisible() for arrow in arrows))
 
+    def test_f5_refreshes_only_while_refresh_is_enabled(self):
+        self.window.activateWindow()
+        QTest.qWait(20)
+        requests = []
+        self.window.refresh_requested.connect(lambda: requests.append(True))
+        self.root.setProperty("currentPage", 0)
+        self.key(Qt.Key_F5)
+        self.assertEqual(len(requests), 1)
+        self.window.view_model.set_refresh_enabled(False)
+        self.key(Qt.Key_F5)
+        self.assertEqual(len(requests), 1)
+
+    def test_tooltips_use_the_panel_focus_and_refresh_hint(self):
+        self.window.activateWindow()
+        QTest.qWait(20)
+        refresh_tip = self.root.findChild(QObject, "refreshTooltip")
+        self.assertIn("F5", refresh_tip.property("text"))
+        tip = self.root.findChild(QObject, "navigationTooltip-0")
+        tip.setProperty("delay", 0)
+        tip.setProperty("requestedVisible", True)
+        QTest.qWait(20)
+        self.assertTrue(self.window.view_model.windowActive)
+        self.assertTrue(tip.property("visible"))
+        self.window.view_model._set("windowActive", False)
+        QTest.qWait(10)
+        self.assertFalse(tip.property("visible"))
+
+    def test_arrow_keys_navigate_pokedex_page_and_detail(self):
+        self.window.activateWindow()
+        QTest.qWait(20)
+        self.root.setProperty("currentPage", 1)
+        self.key(Qt.Key_Right)
+        self.assertEqual(self.window.view_model.dexPage, 2)
+        self.key(Qt.Key_Left)
+        self.assertEqual(self.window.view_model.dexPage, 1)
+        self.activate("View Pokemon 1")
+        self.key(Qt.Key_Right)
+        self.assertEqual(self.root.property("selectedDexIndex"), 1)
+        self.key(Qt.Key_Left)
+        self.assertEqual(self.root.property("selectedDexIndex"), 0)
+        self.root.setProperty("currentPage", 4)
+        self.key(Qt.Key_Right)
+        self.assertEqual(self.root.property("selectedDexIndex"), 0)
+
     def test_collection_can_be_paged_and_switched_using_keyboard(self):
         self.root.setProperty("currentPage", 1)
         self.app.processEvents()

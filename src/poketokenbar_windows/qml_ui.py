@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QDate, QEvent, Property, QObject, QRect, QSettings, Qt, QTimer, QUrl, Signal, Slot, QLocale
-from PySide6.QtGui import QCloseEvent, QGuiApplication
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QMainWindow
 
@@ -284,6 +284,7 @@ class QmlViewModel(QObject):
             "theme": str(settings.value("theme", "system")),
             "darkMode": False,
             "windowMaximized": False,
+            "windowActive": False,
             "language": language,
             "strings": ui_strings(language),
             "languageOptions": list(LANGUAGE_OPTIONS),
@@ -292,6 +293,7 @@ class QmlViewModel(QObject):
         self._refresh_dark_mode()
         self._render_state()
 
+    windowActive = Property(bool, lambda self: self._values["windowActive"], notify=dataChanged)
     loading = Property(bool, lambda self: self._values["loading"], notify=dataChanged)
     refreshEnabled = Property(
         bool, lambda self: self._values["refreshEnabled"], notify=dataChanged
@@ -1369,6 +1371,15 @@ class QmlMainWindow(QMainWindow):
             details = "\n".join(error.toString() for error in self.quick.errors())
             raise RuntimeError(f"Could not load the QML interface:\n{details}")
         self.setCentralWidget(self.quick)
+        self._refresh_shortcut = QShortcut(QKeySequence("F5"), self.quick)
+        self._refresh_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._refresh_shortcut.activated.connect(self._refresh_from_shortcut)
+        self._previous_dex_shortcut = QShortcut(QKeySequence("Left"), self.quick)
+        self._previous_dex_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._previous_dex_shortcut.activated.connect(lambda: self._navigate_dex_shortcut(-1))
+        self._next_dex_shortcut = QShortcut(QKeySequence("Right"), self.quick)
+        self._next_dex_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._next_dex_shortcut.activated.connect(lambda: self._navigate_dex_shortcut(1))
         self.statusBar().hide()
         self.windows_snap_enabled = _enable_windows_snap(int(self.winId()))
         self._restore_window_geometry()
@@ -1385,6 +1396,21 @@ class QmlMainWindow(QMainWindow):
         self.buy_egg_btn = _ButtonProxy(parent=self)
         self.buy_uncommon_egg_btn = _ButtonProxy(parent=self)
         self.buy_rare_egg_btn = _ButtonProxy(parent=self)
+
+    def _refresh_from_shortcut(self) -> None:
+        if self.view_model.refreshEnabled:
+            self.view_model.requestRefresh()
+
+    def _navigate_dex_shortcut(self, direction: int) -> None:
+        root = self.quick.rootObject()
+        if root is None or root.property("currentPage") != 1:
+            return
+        if root.property("collectionMode") != "dex":
+            return
+        popup = root.findChild(QObject, "useItemPopup")
+        if popup is not None and popup.property("visible"):
+            return
+        root.navigateDex(direction)
 
     def _load_month_history(self) -> None:
         if self._month_history_future is not None:
@@ -1527,6 +1553,8 @@ class QmlMainWindow(QMainWindow):
             and bool(event.oldState() & Qt.WindowState.WindowMaximized)
         )
         super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and hasattr(self, "view_model"):
+            self.view_model._set("windowActive", self.isActiveWindow())
         if event.type() == QEvent.Type.WindowStateChange:
             if was_maximized and not self.isMaximized() and not self.isMinimized():
                 normal = QRect(self._last_normal_rect)

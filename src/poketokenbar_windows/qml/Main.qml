@@ -35,6 +35,21 @@ Rectangle {
         selectedDexIndex = -1
         collectionPage.contentItem.contentY = 0
     }
+
+    function navigateDex(direction) {
+        if (root.currentPage !== 1 || root.collectionMode !== "dex")
+            return
+        if (root.selectedDexIndex >= 0) {
+            const next = root.selectedDexIndex + direction
+            if (next < 0 || next >= appModel.dexBrowseEntries.length)
+                return
+            root.selectedDexIndex = next
+        } else {
+            appModel.moveDexPage(direction)
+        }
+        collectionPage.contentItem.contentY = 0
+    }
+
     readonly property bool darkMode: appModel.darkMode
     property color textColor: appModel.darkMode ? "#edf2ff" : "#172033"
     property color mutedColor: appModel.darkMode ? "#b9c7db" : "#5b6a80"
@@ -308,8 +323,30 @@ Rectangle {
             }
         }
         HoverHandler { id: representativeHover }
-        ToolTip.visible: representativeHover.hovered
-        ToolTip.text: label
+        AppToolTip { requestedVisible: representativeHover.hovered; text: label }
+    }
+
+    component AppToolTip: ToolTip {
+        id: tooltip
+        property bool requestedVisible: false
+        visible: requestedVisible && appModel.windowActive
+        delay: 550
+        timeout: 5000
+        padding: 8
+        width: Math.min(320, Math.max(72, text.length * 6.3 + 20))
+        contentItem: Text {
+            text: tooltip.text
+            color: root.textColor
+            font.pixelSize: 11
+            wrapMode: Text.WordWrap
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            color: root.panelColor
+            radius: 7
+            border.color: root.borderColor
+            border.width: 1
+        }
     }
 
     component Panel: Rectangle {
@@ -398,9 +435,7 @@ Rectangle {
         color: root.textColor
         font.pixelSize: 12
         HoverHandler { id: infoHover }
-        ToolTip.visible: infoHover.hovered
-        ToolTip.delay: 550
-        ToolTip.text: helpText
+        AppToolTip { requestedVisible: infoHover.hovered; text: helpText }
         Accessible.description: helpText
     }
 
@@ -585,9 +620,7 @@ Rectangle {
         activeFocusOnTab: true
         Accessible.name: helpText
         Accessible.role: Accessible.Button
-        ToolTip.visible: hovered || activeFocus
-        ToolTip.delay: 500
-        ToolTip.text: helpText
+        AppToolTip { requestedVisible: windowControl.hovered || windowControl.activeFocus; delay: 500; text: helpText }
         padding: 0
         contentItem: Item {
             Canvas {
@@ -661,9 +694,7 @@ Rectangle {
         Accessible.name: nav.text
         Accessible.description: nav.description
         Accessible.role: Accessible.PageTab
-        ToolTip.visible: nav.hovered || nav.activeFocus
-        ToolTip.delay: 550
-        ToolTip.text: nav.description
+        AppToolTip { objectName: "navigationTooltip-" + nav.pageIndex; requestedVisible: nav.hovered || nav.activeFocus; text: nav.description }
         implicitHeight: 38
         onClicked: root.currentPage = pageIndex
         background: Rectangle {
@@ -789,9 +820,10 @@ Rectangle {
 
         }
         HoverHandler { id: toggleHover }
-        ToolTip.visible: (toggleHover.hovered || toggle.activeFocus) && toggleRow.detail.length > 0
-        ToolTip.delay: 550
-        ToolTip.text: toggleRow.detail
+        AppToolTip {
+            requestedVisible: (toggleHover.hovered || toggle.activeFocus) && toggleRow.detail.length > 0
+            text: toggleRow.detail
+        }
         Switch {
             id: toggle
             activeFocusOnTab: true
@@ -1052,6 +1084,11 @@ Rectangle {
                                         highlighted: true
                                         enabled: appModel.refreshEnabled
                                         onClicked: appModel.requestRefresh()
+                                        AppToolTip {
+                                            objectName: "refreshTooltip"
+                                            requestedVisible: parent.hovered || parent.activeFocus
+                                            text: appModel.strings.refresh_shortcut_help
+                                        }
                                     }
                                 }
                                 RowLayout {
@@ -1067,9 +1104,11 @@ Rectangle {
                                         color: root.darkMode ? "#503b22" : "#fff0d6"
                                         Text { anchors.centerIn: parent; text: appModel.strings.repeat_boost; color: root.warningColor; font.pixelSize: 10; font.weight: Font.Bold }
                                         HoverHandler { id: growthHover }
-                                        ToolTip.visible: growthHover.hovered
-                                        ToolTip.delay: 450
-                                        ToolTip.text: appModel.strings.repeat_boost_help
+                                        AppToolTip {
+                                            requestedVisible: growthHover.hovered
+                                            delay: 450
+                                            text: appModel.strings.repeat_boost_help
+                                        }
                                         Accessible.name: appModel.strings.repeat_boost_help
                                     }
                                 }
@@ -1607,9 +1646,9 @@ Rectangle {
                         Layout.fillWidth: true
                         Layout.leftMargin: 14
                         Layout.rightMargin: 14
-                        AppButton { text: appModel.strings.previous; enabled: appModel.dexPage > 1; onClicked: appModel.moveDexPage(-1) }
+                        AppButton { text: appModel.strings.previous; enabled: appModel.dexPage > 1; onClicked: root.navigateDex(-1) }
                         Item { Layout.fillWidth: true }
-                        AppButton { text: appModel.strings.next; enabled: appModel.dexPage < appModel.dexPageCount; onClicked: appModel.moveDexPage(1) }
+                        AppButton { text: appModel.strings.next; enabled: appModel.dexPage < appModel.dexPageCount; onClicked: root.navigateDex(1) }
                     }
                     Panel {
                         objectName: "dexDetailPanel"
@@ -1710,19 +1749,13 @@ Rectangle {
                         AppButton {
                             text: appModel.strings.previous
                             enabled: root.selectedDexIndex > 0
-                            onClicked: {
-                                root.selectedDexIndex--
-                                collectionPage.contentItem.contentY = 0
-                            }
+                            onClicked: root.navigateDex(-1)
                         }
                         Item { Layout.fillWidth: true }
                         AppButton {
                             text: appModel.strings.next
                             enabled: root.selectedDexIndex < appModel.dexBrowseEntries.length - 1
-                            onClicked: {
-                                root.selectedDexIndex++
-                                collectionPage.contentItem.contentY = 0
-                            }
+                            onClicked: root.navigateDex(1)
                         }
                     }
                     Text { visible: root.collectionMode === "catches" && appModel.catches.length === 0; Layout.leftMargin: 14; text: appModel.strings.empty_catches; color: root.mutedColor; font.pixelSize: 12 }
@@ -2041,9 +2074,10 @@ Rectangle {
                                         activeFocusOnTab: true
                                         Accessible.name: appModel.strings.desktop_representative
                                         Accessible.description: appModel.strings.representative_help
-                                        ToolTip.visible: hovered || activeFocus
-                                        ToolTip.delay: 550
-                                        ToolTip.text: appModel.strings.representative_help
+                                        AppToolTip {
+                                            requestedVisible: hovered || activeFocus
+                                            text: appModel.strings.representative_help
+                                        }
                                         FocusFrame { }
                                         model: appModel.collection
                                         textRole: "display"
@@ -2150,8 +2184,18 @@ Rectangle {
                                 ToggleRow { objectName: "trayLimitToggle"; label: appModel.strings.tray_limit; detail: appModel.strings.tray_limit_help; checked: appModel.trayShowLimit; onChanged: value => appModel.setPreference("trayShowLimit", value) }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    AppButton { objectName: "exportBackupButton"; text: appModel.strings.export_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestExport() }
-                                    AppButton { objectName: "importBackupButton"; text: appModel.strings.import_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestImport() }
+                                    AppButton {
+                                        objectName: "exportBackupButton"
+                                        text: appModel.strings.export_backup
+                                        AppToolTip { requestedVisible: parent.hovered; text: appModel.strings.backup_help }
+                                        onClicked: appModel.requestExport()
+                                    }
+                                    AppButton {
+                                        objectName: "importBackupButton"
+                                        text: appModel.strings.import_backup
+                                        AppToolTip { requestedVisible: parent.hovered; text: appModel.strings.backup_help }
+                                        onClicked: appModel.requestImport()
+                                    }
                                 }
                             }
                         }
