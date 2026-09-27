@@ -117,6 +117,14 @@ class QmlKeyboardTests(unittest.TestCase):
 
     def test_footer_stays_fixed_and_about_contains_full_build_identity(self):
         self.window.resize(520, 640)
+        QTest.qWait(20)
+        self.assertEqual((self.root.width(), self.root.height()), (520, 640))
+        home = self.root.findChild(QObject, "homePage")
+        self.assertGreater(home.property("contentHeight"), home.height())
+        home.property("contentItem").setProperty("contentY", home.property("contentHeight") - home.height())
+        QTest.qWait(20)
+        limits = self.root.findChild(QObject, "limitsPanel")
+        self.assertLessEqual(limits.mapToItem(home, 0, limits.height()).y(), home.height())
         footer = self.root.findChild(QObject, "shellFooter")
         footer_version = self.root.findChild(QObject, "footerVersion")
         about_version = self.root.findChild(QObject, "aboutBuildVersion")

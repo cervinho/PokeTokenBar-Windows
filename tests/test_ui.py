@@ -323,7 +323,7 @@ class UITests(unittest.TestCase):
         model.render(RefreshResult(snapshot, {}, {"cursor": "not available"}, state, [], None, "Pokemon Egg"))
         self.assertEqual([row["key"] for row in model.providers], ["codex"])
 
-    def test_qml_home_has_no_page_level_scroll_and_lists_only_overflow_as_needed(self):
+    def test_qml_home_scrolls_at_minimum_size_and_lists_only_overflow_as_needed(self):
         qml = (
             Path(__file__).resolve().parents[1]
             / "src"
@@ -335,7 +335,7 @@ class UITests(unittest.TestCase):
             qml.index('id: homePage') : qml.index('id: collectionPage')
         ]
         self.assertIn(
-            'Item {\n                id: homePage',
+            'PageScroll {\n                id: homePage',
             qml,
         )
         self.assertNotIn("appModel.wallet", home_block)

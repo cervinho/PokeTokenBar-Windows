@@ -980,12 +980,18 @@ Rectangle {
             Layout.fillHeight: true
             currentIndex: root.currentPage
 
-            Item {
+            PageScroll {
                 id: homePage
                 objectName: "homePage"
+                clip: true
+                contentWidth: availableWidth
+                contentHeight: homeContent.height + 20
                 ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 10
+                    id: homeContent
+                    x: 10
+                    y: 10
+                    width: homePage.availableWidth - 20
+                    height: Math.max(homePage.availableHeight - 20, implicitHeight)
                     spacing: 7
 
                     Panel {
