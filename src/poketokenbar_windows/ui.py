@@ -22,11 +22,13 @@ from PySide6.QtCore import (
     QSize,
     Qt,
     QTimer,
+    QUrl,
     Signal,
 )
 from PySide6.QtGui import (
     QAction,
     QColor,
+    QDesktopServices,
     QIcon,
     QImage,
     QMovie,
@@ -129,6 +131,7 @@ from .notifications import (
 from .pet_logic import PET_DEFAULT_SIZE, PET_MAX_SIZE, PET_MIN_SIZE, PET_SIZE_STEP, normalize_pet_size, settings_bool
 from .pokemon import EGG_HATCH_THRESHOLD, PokeAPIClient, egg_price, phase_threshold
 from .qml_ui import QmlMainWindow
+from .updates import UpdateChecker
 from .state import (
     GameState,
     StateStore,
@@ -427,11 +430,45 @@ def _muted_pixmap(pix: QPixmap) -> QPixmap:
     return QPixmap.fromImage(image)
 
 
+def _trim_transparent_padding(pix: QPixmap) -> QPixmap:
+    image = pix.toImage()
+    left, top = image.width(), image.height()
+    right = bottom = -1
+    for y in range(image.height()):
+        for x in range(image.width()):
+            if image.pixelColor(x, y).alpha() > 8:
+                left, top = min(left, x), min(top, y)
+                right, bottom = max(right, x), max(bottom, y)
+    if right < left:
+        return pix
+    return pix.copy(left, top, right - left + 1, bottom - top + 1)
+
+
 def _icon_from_sprite(path: Path | None, *, fallback_egg: bool = False) -> QIcon:
     pix = _sprite_pixmap(path, 128)
     if pix.isNull():
         pix = _egg_pixmap(128) if fallback_egg else _pokeball_pixmap(128)
-    return QIcon(pix)
+    if not fallback_egg:
+        return QIcon(pix)
+
+    # PokeAPI's egg fills only about a third of its transparent 96px canvas.
+    # Trim that padding for the tray without changing the sprite elsewhere.
+    egg = _trim_transparent_padding(pix)
+    icon = QIcon()
+    for size in (16, 20, 24, 32, 48, 64, 128):
+        margin = max(1, size // 16)
+        scaled = egg.scaled(
+            size - 2 * margin, size - 2 * margin,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+        canvas = QPixmap(size, size)
+        canvas.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(canvas)
+        painter.drawPixmap((size - scaled.width()) // 2, (size - scaled.height()) // 2, scaled)
+        painter.end()
+        icon.addPixmap(canvas)
+    return icon
 
 
 def _clear_layout(layout) -> None:
@@ -2052,6 +2089,10 @@ class TrayController(QObject):
         self.window.language_changed.connect(self._set_language)
         self.window.export_requested.connect(self._export_state)
         self.window.import_requested.connect(self._import_state)
+        self.update_checker = UpdateChecker(parent=self)
+        self.update_checker.stateChanged.connect(self.window.view_model.set_update_state)
+        self.window.view_model.checkUpdatesRequested.connect(self.update_checker.check_now)
+        self.window.view_model.openReleaseRequested.connect(self._open_release)
         self._wire_shop_buttons()
         self._apply_theme()
 
@@ -2110,6 +2151,7 @@ class TrayController(QObject):
         self.stale_timer.timeout.connect(self._check_staleness)
         self.stale_timer.start(60_000)
         QTimer.singleShot(0, self.refresh)
+        QTimer.singleShot(0, self.update_checker.start_automatic)
 
     def _wire_shop_buttons(self) -> None:
         if isinstance(self.window, QmlMainWindow):
@@ -2406,6 +2448,11 @@ class TrayController(QObject):
                 translated_text(language, "import_backup"),
                 translated_text(language, "backup_import_error"),
             )
+
+    def _open_release(self) -> None:
+        state = self.update_checker.state
+        if state.status == "available" and state.url:
+            QDesktopServices.openUrl(QUrl(state.url))
 
     def show_window(self) -> None:
         if self.last_result is None:

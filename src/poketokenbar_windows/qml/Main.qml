@@ -931,22 +931,6 @@ Rectangle {
                             font.pixelSize: 15
                             font.weight: Font.DemiBold
                         }
-                        Rectangle {
-                            Layout.leftMargin: 5
-                            width: 7
-                            height: 7
-                            radius: 4
-                            color: appModel.loading ? root.warningColor : root.successColor
-                        }
-                        Text {
-                            text: appModel.statusText
-                            color: root.mutedColor
-                            font.pixelSize: 10
-                            elide: Text.ElideRight
-                            Layout.preferredWidth: Math.min(135, implicitWidth)
-                            Layout.minimumWidth: 62
-                            Layout.maximumWidth: 135
-                        }
                         Item { Layout.fillWidth: true }
                         WindowButton {
                             objectName: "minimizeWindowButton"
@@ -996,12 +980,18 @@ Rectangle {
             Layout.fillHeight: true
             currentIndex: root.currentPage
 
-            Item {
+            PageScroll {
                 id: homePage
                 objectName: "homePage"
+                clip: true
+                contentWidth: availableWidth
+                contentHeight: homeContent.height + 20
                 ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 10
+                    id: homeContent
+                    x: 10
+                    y: 10
+                    width: homePage.availableWidth - 20
+                    height: Math.max(homePage.availableHeight - 20, implicitHeight)
                     spacing: 7
 
                     Panel {
@@ -2135,9 +2125,11 @@ Rectangle {
                         }
 
                         Panel {
+                            objectName: "appearanceSettingsPanel"
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 260
+                            Layout.preferredHeight: appearanceContent.implicitHeight + 24
                             ColumnLayout {
+                                id: appearanceContent
                                 anchors.fill: parent; anchors.margins: 12; spacing: 7
                                 Text { text: appModel.strings.appearance_data; color: root.textColor; font.pixelSize: 15; font.weight: Font.Medium }
                                 RowLayout {
@@ -2158,13 +2150,151 @@ Rectangle {
                                 ToggleRow { objectName: "trayLimitToggle"; label: appModel.strings.tray_limit; detail: appModel.strings.tray_limit_help; checked: appModel.trayShowLimit; onChanged: value => appModel.setPreference("trayShowLimit", value) }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    AppButton { text: appModel.strings.export_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestExport() }
-                                    AppButton { text: appModel.strings.import_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestImport() }
+                                    AppButton { objectName: "exportBackupButton"; text: appModel.strings.export_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestExport() }
+                                    AppButton { objectName: "importBackupButton"; text: appModel.strings.import_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestImport() }
+                                }
+                            }
+                        }
+                    }
+                    Panel {
+                        id: aboutSettingsPanel
+                        objectName: "aboutSettingsPanel"
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 14
+                        Layout.rightMargin: 14
+                        Layout.preferredHeight: aboutContent.implicitHeight + 24
+                        ColumnLayout {
+                            id: aboutContent
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 8
+                            Text {
+                                text: appModel.strings.about_title
+                                color: root.textColor
+                                font.pixelSize: 15
+                                font.weight: Font.Medium
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 12
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    spacing: 5
+                                    Text {
+                                        objectName: "aboutBuildVersion"
+                                        Layout.fillWidth: true
+                                        text: appModel.strings.about_version + " " + appModel.buildVersion
+                                        color: root.mutedColor
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                                    }
+                                    Text {
+                                        objectName: "aboutUpdateStatus"
+                                        Layout.fillWidth: true
+                                        text: {
+                                            switch (appModel.updateStatus) {
+                                            case "checking": return appModel.strings.update_checking
+                                            case "available": return root.format(appModel.strings.update_available, {version: appModel.latestVersion})
+                                            case "current": return root.format(appModel.strings.update_current, {version: appModel.latestVersion})
+                                            case "no_release": return appModel.strings.update_no_release
+                                            case "offline": return appModel.strings.update_offline
+                                            case "invalid": return appModel.strings.update_invalid
+                                            default: return appModel.strings.update_idle
+                                            }
+                                        }
+                                        color: appModel.updateStatus === "available" ? root.warningColor : root.mutedColor
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                                ColumnLayout {
+                                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                    spacing: 6
+                                    AppButton {
+                                        objectName: "checkUpdatesButton"
+                                        Layout.alignment: Qt.AlignRight
+                                        text: appModel.strings.update_check
+                                        enabled: appModel.updateStatus !== "checking"
+                                        onClicked: appModel.checkUpdates()
+                                    }
+                                    AppButton {
+                                        objectName: "viewReleaseButton"
+                                        Layout.alignment: Qt.AlignRight
+                                        text: appModel.strings.update_view_release
+                                        visible: appModel.updateStatus === "available"
+                                        highlighted: true
+                                        onClicked: appModel.openRelease()
+                                    }
                                 }
                             }
                         }
                     }
                     Item { Layout.preferredHeight: 10 }
+                }
+            }
+        }
+        Rectangle {
+            id: shellFooter
+            objectName: "shellFooter"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 32
+            color: root.panelColor
+            border.color: root.borderColor
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 7
+                Rectangle {
+                    objectName: "dataStatusDot"
+                    width: 7
+                    height: 7
+                    radius: 4
+                    color: appModel.dataStatus === "error" ? root.dangerColor
+                        : (appModel.dataStatus === "warning" || appModel.dataStatus === "loading")
+                            ? root.warningColor : root.successColor
+                }
+                Text {
+                    objectName: "footerDataStatus"
+                    text: appModel.strings.data_status + ": " + appModel.statusText
+                    color: root.mutedColor
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                    Accessible.name: text
+                }
+                Button {
+                    id: footerUpdateLink
+                    objectName: "footerUpdateLink"
+                    visible: appModel.updateStatus === "available"
+                    text: root.format(appModel.strings.update_footer, {version: appModel.latestVersion})
+                    implicitHeight: 24
+                    leftPadding: 5
+                    rightPadding: 5
+                    activeFocusOnTab: true
+                    Accessible.name: root.format(appModel.strings.update_available, {version: appModel.latestVersion})
+                    Accessible.role: Accessible.Button
+                    onClicked: appModel.openRelease()
+                    FocusFrame { }
+                    contentItem: Text {
+                        text: footerUpdateLink.text
+                        color: root.accentColor
+                        font.pixelSize: 10
+                        font.weight: Font.Medium
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 4
+                        color: footerUpdateLink.hovered ? root.accentSurface : "transparent"
+                    }
+                }
+                Text {
+                    objectName: "footerVersion"
+                    text: appModel.versionShort
+                    color: root.mutedColor
+                    font.pixelSize: 10
                 }
             }
         }
