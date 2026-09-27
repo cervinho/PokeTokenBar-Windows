@@ -24,6 +24,7 @@ from poketokenbar_windows.models import (
 from poketokenbar_windows.qml_ui import QmlMainWindow
 from poketokenbar_windows.state import CatchRecord, GameState, MonState
 from poketokenbar_windows.ui import RefreshResult
+from poketokenbar_windows.updates import UpdateState
 
 
 class LocalSprites:
@@ -113,6 +114,69 @@ class QmlKeyboardTests(unittest.TestCase):
     def activate(self, accessible_name):
         self.control(accessible_name).forceActiveFocus(Qt.TabFocusReason)
         self.key(Qt.Key_Space)
+
+    def test_footer_stays_fixed_and_about_contains_full_build_identity(self):
+        self.window.resize(520, 640)
+        footer = self.root.findChild(QObject, "shellFooter")
+        footer_version = self.root.findChild(QObject, "footerVersion")
+        about_version = self.root.findChild(QObject, "aboutBuildVersion")
+        settings = self.root.findChild(QObject, "settingsPage")
+        self.assertEqual(footer_version.property("text"), self.window.view_model.versionShort)
+        self.assertIn(self.window.view_model.buildVersion, about_version.property("text"))
+        self.assertNotEqual(footer_version.property("text"), self.window.view_model.buildVersion)
+        for page in (0, 1, 4):
+            self.root.setProperty("currentPage", page)
+            QTest.qWait(20)
+            if page == 4:
+                content = settings.property("contentItem")
+                content.setProperty("contentY", settings.property("contentHeight") - settings.height())
+                QTest.qWait(20)
+            position = footer.mapToItem(self.root, 0, 0)
+            self.assertAlmostEqual(position.y() + footer.height(), self.root.height(), delta=2)
+
+    def test_offline_about_message_and_manual_button_fit_minimum_size(self):
+        self.window.resize(520, 640)
+        self.root.setProperty("currentPage", 4)
+        self.window.view_model.set_update_state(UpdateState("offline"))
+        QTest.qWait(30)
+        settings = self.root.findChild(QObject, "settingsPage")
+        content = settings.property("contentItem")
+        content.setProperty("contentY", settings.property("contentHeight") - settings.height())
+        QTest.qWait(20)
+        about = self.root.findChild(QObject, "aboutSettingsPanel")
+        message = self.root.findChild(QObject, "aboutUpdateStatus")
+        button = self.root.findChild(QObject, "checkUpdatesButton")
+        self.assertTrue(button.isVisible())
+        self.assertLessEqual(message.mapToItem(about, 0, 0).y() + message.height(), about.height())
+        self.assertLessEqual(button.mapToItem(about, 0, 0).y() + button.height(), about.height())
+        self.assertLessEqual(about.mapToItem(self.root, 0, 0).y() + about.height(),
+                             settings.mapToItem(self.root, 0, 0).y() + settings.height() + 1)
+
+    def test_update_states_and_data_light_are_distinct(self):
+        label = self.root.findChild(QObject, "aboutUpdateStatus")
+        link = self.root.findChild(QObject, "footerUpdateLink")
+        dot = self.root.findChild(QObject, "dataStatusDot")
+        self.assertEqual(dot.property("color"), self.root.property("successColor"))
+        self.window.view_model.set_update_state(UpdateState("available", "v1.1.0",
+            "https://github.com/pnmartinez/PokeTokenBar-Windows/releases/tag/v1.1.0"))
+        QTest.qWait(10)
+        self.assertIn("v1.1.0", label.property("text"))
+        self.assertTrue(link.isVisible())
+        self.assertEqual(dot.property("color"), self.root.property("successColor"))
+        for state in ("no_release", "offline", "invalid"):
+            self.window.view_model.set_update_state(UpdateState(state))
+            QTest.qWait(10)
+            self.assertFalse(link.isVisible())
+            self.assertNotIn("latest Release", label.property("text"))
+        self.window.view_model.set_status("Data is stale · refreshing…")
+        QTest.qWait(10)
+        self.assertEqual(dot.property("color"), self.root.property("warningColor"))
+        self.window.view_model.set_status("Update failed · retry scheduled")
+        QTest.qWait(10)
+        self.assertEqual(dot.property("color"), self.root.property("dangerColor"))
+        self.window.view_model.set_status("Updating…")
+        QTest.qWait(10)
+        self.assertEqual(dot.property("color"), self.root.property("warningColor"))
 
     def test_tab_and_backtab_keep_every_page_control_named_and_on_screen(self):
         for width in (520, 820):
