@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QObject, QSettings, Qt
 from PySide6.QtGui import QAccessible, QFont, QFontDatabase
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from poketokenbar_windows.models import (
     LimitWindow,
@@ -649,8 +649,12 @@ class QmlKeyboardTests(unittest.TestCase):
         QTest.qWait(20)
         self.assertTrue(self.window.view_model.windowActive)
         self.assertTrue(tip.property("visible"))
-        self.window.view_model._set("windowActive", False)
-        QTest.qWait(10)
+        other = QWidget()
+        self.addCleanup(other.close)
+        other.show()
+        other.activateWindow()
+        QTest.qWait(30)
+        self.assertFalse(self.window.view_model.windowActive)
         self.assertFalse(tip.property("visible"))
 
     def test_arrow_keys_navigate_pokedex_page_and_detail(self):
