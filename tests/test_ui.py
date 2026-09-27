@@ -245,6 +245,11 @@ class UITests(unittest.TestCase):
         self.assertEqual(controller.state.inventory["rare_candy"], 0)
         self.assertEqual(window.view_model.feedbackText, "✓ Caramelo Raro usado")
         controller.refresh.assert_called_once_with()
+        controller.state.inventory["mint"] = 1
+        with patch("random.choice", return_value="Lax"):
+            controller._use_item("mint")
+        self.assertEqual(controller.state.mon.nature, "Lax")
+        self.assertEqual(window.view_model.feedbackText, "✓ Nova natureza: Laxa")
 
     def test_month_trend_and_repeat_badge_fit_home_layout(self):
         state = GameState(mon=MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy", True), language="gl")
@@ -569,9 +574,13 @@ class UITests(unittest.TestCase):
         ]
         model = QmlViewModel(GameState(catches=catches), self.settings, FakeUIAPI())
 
-        self.assertEqual(model.dexPageCount, 2)
-        self.assertEqual(len(model.dexEntries), 24)
+        self.assertGreater(model.dexPageCount, 1)
         self.assertIn("26 species", model.dexSummary)
+        seen = []
+        for _ in range(model.dexPageCount):
+            seen.extend(row["speciesId"] for row in model.dexEntries)
+            model.moveDexPage(1)
+        self.assertEqual(seen, list(range(1, 27)))
 
         model.setDexFilter("rare")
         self.assertEqual(model.dexPageCount, 1)

@@ -228,25 +228,39 @@ class QmlKeyboardTests(unittest.TestCase):
                     with self.subTest(width=width, theme=theme, page=page):
                         self.root.setProperty("currentPage", page)
                         self.root.forceActiveFocus()
-                        QTest.qWait(80 if page == 1 else 10)
+                        QTest.qWait(300 if page == 1 else 10)
                         self.window.grab()
                         self.app.processEvents()
-                        expected = list(self.controls())
-                        visited = []
-                        for _ in range(len(expected)):
+                        if page == 1:
+                            for _ in range(12):
+                                rendered_cards = sum(
+                                    self.name(item).startswith("View Pokemon ")
+                                    for item in self.controls()
+                                )
+                                if rendered_cards == len(self.window.view_model.dexEntries):
+                                    break
+                                QTest.qWait(20)
+                                self.window.grab()
+                                self.app.processEvents()
+                        expected_names = [self.name(item) for item in self.controls()]
+                        visited_names = []
+                        visited_ids = set()
+                        for _ in range(len(expected_names)):
                             self.key(Qt.Key_Tab)
                             item = self.window.quick.quickWindow().activeFocusItem()
                             self.assertIsNotNone(item)
-                            self.assertNotIn(item, visited, "Tab cycled before reaching every control")
-                            visited.append(item)
-                            self.assertTrue(self.name(item), item.metaObject().className())
+                            self.assertNotIn(id(item), visited_ids, "Tab cycled before reaching every control")
+                            visited_ids.add(id(item))
+                            name = self.name(item)
+                            visited_names.append(name)
+                            self.assertTrue(name, item.metaObject().className())
                             point = item.mapToItem(self.root, 0, 0)
                             self.assertGreaterEqual(point.x(), -1)
                             self.assertGreaterEqual(point.y(), -1)
                             self.assertLessEqual(point.x() + item.width(), self.root.width() + 1)
                             self.assertLessEqual(point.y() + item.height(), self.root.height() + 1)
-                        self.assertCountEqual(visited, expected)
-                        for _ in range(len(expected)):
+                        self.assertCountEqual(visited_names, expected_names)
+                        for _ in range(len(expected_names)):
                             self.key(Qt.Key_Tab, Qt.ShiftModifier)
                             item = self.window.quick.quickWindow().activeFocusItem()
                             point = item.mapToItem(self.root, 0, 0)

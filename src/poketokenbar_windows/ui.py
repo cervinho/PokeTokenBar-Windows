@@ -102,7 +102,7 @@ from .floating_pet import (
     FloatingPetController,
 )
 from .limits import fetch_all_limits
-from .localization import localize_surface, text as translated_text
+from .localization import localized_nature, localize_surface, text as translated_text
 from .models import ProviderLimits, UsageSnapshot
 from .notifications import (
     BANKED_RESET_NOTIFICATIONS_KEY,
@@ -2780,7 +2780,8 @@ class TrayController(QObject):
         if item == "mint" and self.state.mon and self.state.mon.nature != old_nature:
             self.window.action_feedback.setText(
                 "✓ " + translated_text(
-                    self.state.language, "new_nature", nature=self.state.mon.nature
+                    self.state.language, "new_nature",
+                    nature=localized_nature(self.state.mon.nature, self.state.language)
                 )
             )
 
