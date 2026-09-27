@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from bisect import bisect_right
 from calendar import monthrange
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
@@ -171,6 +172,10 @@ class QmlViewModel(QObject):
         self.settings = settings
         self.api = api
         self._dex_page = 0
+        self._dex_page_starts = [0]
+        self._dex_filtered_rows: list[dict[str, Any]] = []
+        self._dex_columns = 3
+        self._dex_grid_height = 400
         self._current_month = ""
         self._selected_month = ""
         self._month_history: dict[str, tuple[list[int], list[float]]] | None = None
@@ -687,7 +692,29 @@ class QmlViewModel(QObject):
             )
         return rows
 
-    def _refresh_dex_rows(self) -> None:
+    @staticmethod
+    def _pokedex_page_starts(
+        rows: list[dict[str, Any]], columns: int, grid_height: int
+    ) -> list[int]:
+        starts = [0]
+        index = 0
+        while index < len(rows):
+            occupied = 0
+            first_row = True
+            while index < len(rows):
+                row = rows[index : index + columns]
+                row_height = 210 if any(item["hasShiny"] for item in row) else 174
+                needed = row_height + (0 if first_row else 7)
+                if not first_row and occupied + needed > grid_height:
+                    break
+                occupied += needed
+                index += len(row)
+                first_row = False
+            if index < len(rows):
+                starts.append(index)
+        return starts
+
+    def _refresh_dex_rows(self, *, anchor: int | None = None) -> None:
         all_rows = self._all_dex_rows()
         rarity_order = ("common", "uncommon", "rare", "legendary")
         counts = {
@@ -708,10 +735,20 @@ class QmlViewModel(QObject):
             if self._dex_filter == "all"
             else [row for row in all_rows if row["rarity"] == self._dex_filter]
         )
-        page_size = 24
-        page_count = max(1, (len(filtered) + page_size - 1) // page_size)
+        self._dex_filtered_rows = filtered
+        self._dex_page_starts = self._pokedex_page_starts(
+            filtered, self._dex_columns, self._dex_grid_height
+        )
+        page_count = len(self._dex_page_starts)
+        if anchor is not None:
+            self._dex_page = bisect_right(self._dex_page_starts, anchor) - 1
         self._dex_page = max(0, min(self._dex_page, page_count - 1))
-        start = self._dex_page * page_size
+        start = self._dex_page_starts[self._dex_page]
+        end = (
+            self._dex_page_starts[self._dex_page + 1]
+            if self._dex_page + 1 < page_count
+            else len(filtered)
+        )
         rarity_summary = " · ".join(
             f"{self._tr(rarity)} {counts[rarity]}"
             for rarity in rarity_order
@@ -721,7 +758,7 @@ class QmlViewModel(QObject):
         if rarity_summary:
             summary += f" · {rarity_summary}"
         self._values.update(
-            dexEntries=filtered[start : start + page_size],
+            dexEntries=filtered[start:end],
             dexBrowseEntries=filtered,
             dexFilters=filters,
             dexSummary=summary,
@@ -1227,9 +1264,31 @@ class QmlViewModel(QObject):
 
     @Slot(int)
     def moveDexPage(self, delta: int) -> None:
-        self._dex_page += int(delta)
+        target = max(0, min(self._dex_page + int(delta), len(self._dex_page_starts) - 1))
+        if target == self._dex_page:
+            return
+        self._dex_page = target
         self._refresh_dex_rows()
         self.dataChanged.emit()
+
+    @Slot(int, int)
+    def setDexViewport(self, columns: int, grid_height: int) -> None:
+        columns = max(1, min(4, int(columns)))
+        grid_height = max(210, int(grid_height))
+        if (columns, grid_height) == (self._dex_columns, self._dex_grid_height):
+            return
+        anchor = self._dex_page_starts[self._dex_page]
+        old_starts = self._dex_page_starts
+        self._dex_columns = columns
+        self._dex_grid_height = grid_height
+        if self._pokedex_page_starts(self._dex_filtered_rows, columns, grid_height) == old_starts:
+            return
+        self._refresh_dex_rows(anchor=anchor)
+        self.dataChanged.emit()
+
+    @Slot(int, result=int)
+    def dexPageForIndex(self, index: int) -> int:
+        return max(1, bisect_right(self._dex_page_starts, int(index)))
 
     @Slot(int)
     def toggleDexVariant(self, species_id: int) -> None:
@@ -1380,6 +1439,10 @@ class QmlMainWindow(QMainWindow):
         self._next_dex_shortcut = QShortcut(QKeySequence("Right"), self.quick)
         self._next_dex_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._next_dex_shortcut.activated.connect(lambda: self._navigate_dex_shortcut(1))
+        root = self.quick.rootObject()
+        root.currentPageChanged.connect(self._sync_dex_shortcuts)
+        root.collectionModeChanged.connect(self._sync_dex_shortcuts)
+        self._sync_dex_shortcuts()
         self.statusBar().hide()
         self.windows_snap_enabled = _enable_windows_snap(int(self.winId()))
         self._restore_window_geometry()
@@ -1400,6 +1463,16 @@ class QmlMainWindow(QMainWindow):
     def _refresh_from_shortcut(self) -> None:
         if self.view_model.refreshEnabled:
             self.view_model.requestRefresh()
+
+    def _sync_dex_shortcuts(self) -> None:
+        root = self.quick.rootObject()
+        enabled = (
+            root is not None
+            and root.property("currentPage") == 1
+            and root.property("collectionMode") == "dex"
+        )
+        self._previous_dex_shortcut.setEnabled(enabled)
+        self._next_dex_shortcut.setEnabled(enabled)
 
     def _navigate_dex_shortcut(self, direction: int) -> None:
         root = self.quick.rootObject()

@@ -12,12 +12,18 @@ Rectangle {
     border.width: 1
 
     property int currentPage: 0
+    onCurrentPageChanged: Qt.callLater(root.syncDexViewport)
     property int trendHoveredIndex: -1
     property string collectionMode: "dex"
     property int selectedDexIndex: -1
     readonly property var selectedDex: selectedDexIndex >= 0 && selectedDexIndex < appModel.dexBrowseEntries.length
         ? appModel.dexBrowseEntries[selectedDexIndex] : ({})
-    onCollectionModeChanged: if (collectionMode !== "dex") selectedDexIndex = -1
+    onCollectionModeChanged: {
+        if (collectionMode !== "dex") selectedDexIndex = -1
+        collectionPage.contentItem.contentY = 0
+        Qt.callLater(root.syncDexViewport)
+    }
+    onSelectedDexIndexChanged: if (selectedDexIndex < 0) Qt.callLater(root.syncDexViewport)
 
     function openDex(speciesId) {
         for (let index = 0; index < appModel.dexBrowseEntries.length; ++index) {
@@ -31,9 +37,21 @@ Rectangle {
 
     function closeDex() {
         if (selectedDexIndex >= 0)
-            appModel.moveDexPage(Math.floor(selectedDexIndex / 24) + 1 - appModel.dexPage)
+            appModel.moveDexPage(appModel.dexPageForIndex(selectedDexIndex) - appModel.dexPage)
         selectedDexIndex = -1
         collectionPage.contentItem.contentY = 0
+    }
+
+    function syncDexViewport() {
+        if (root.currentPage !== 1 || root.collectionMode !== "dex"
+                || root.selectedDexIndex >= 0 || collectionPage.availableHeight <= 0
+                || dexGrid.width <= 0 || dexPagination.height <= 0)
+            return
+        const height = Math.floor(
+            collectionPage.availableHeight - dexGrid.y
+            - dexPagination.height - collectionContent.spacing - 4
+        )
+        appModel.setDexViewport(dexGrid.columns, height)
     }
 
     function navigateDex(direction) {
@@ -1470,9 +1488,13 @@ Rectangle {
 
             PageScroll {
                 id: collectionPage
+                objectName: "collectionPage"
                 clip: true
+                onAvailableHeightChanged: Qt.callLater(root.syncDexViewport)
+                onAvailableWidthChanged: Qt.callLater(root.syncDexViewport)
                 contentWidth: availableWidth
                 ColumnLayout {
+                    id: collectionContent
                     width: collectionPage.availableWidth
                     spacing: 10
                     Item { Layout.preferredHeight: 4 }
@@ -1573,7 +1595,12 @@ Rectangle {
                         font.pixelSize: 11
                     }
                     GridLayout {
+                        id: dexGrid
+                        objectName: "dexGrid"
                         visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
+                        onWidthChanged: Qt.callLater(root.syncDexViewport)
+                        onYChanged: Qt.callLater(root.syncDexViewport)
+                        onColumnsChanged: Qt.callLater(root.syncDexViewport)
                         Layout.fillWidth: true
                         Layout.leftMargin: 14
                         Layout.rightMargin: 14
@@ -1642,7 +1669,10 @@ Rectangle {
                     }
                     Text { visible: root.collectionMode === "dex" && root.selectedDexIndex < 0 && appModel.dexEntries.length === 0; Layout.leftMargin: 14; text: appModel.strings.empty_pokedex; color: root.mutedColor; font.pixelSize: 12 }
                     RowLayout {
+                        id: dexPagination
+                        objectName: "dexPagination"
                         visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
+                        onHeightChanged: Qt.callLater(root.syncDexViewport)
                         Layout.fillWidth: true
                         Layout.leftMargin: 14
                         Layout.rightMargin: 14
@@ -1824,7 +1854,10 @@ Rectangle {
                             }
                         }
                     }
-                    Item { Layout.preferredHeight: 10 }
+                    Item {
+                        visible: root.collectionMode !== "dex" || root.selectedDexIndex >= 0
+                        Layout.preferredHeight: 10
+                    }
                 }
             }
 

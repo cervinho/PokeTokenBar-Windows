@@ -228,7 +228,9 @@ class QmlKeyboardTests(unittest.TestCase):
                     with self.subTest(width=width, theme=theme, page=page):
                         self.root.setProperty("currentPage", page)
                         self.root.forceActiveFocus()
-                        QTest.qWait(10)
+                        QTest.qWait(80 if page == 1 else 10)
+                        self.window.grab()
+                        self.app.processEvents()
                         expected = list(self.controls())
                         visited = []
                         for _ in range(len(expected)):
@@ -558,9 +560,10 @@ class QmlKeyboardTests(unittest.TestCase):
         self.activate("Next →")
         self.assertEqual(self.root.property("selectedDexIndex"), 1)
 
-        self.root.setProperty("selectedDexIndex", 23)
+        first_page_size = len(self.window.view_model.dexEntries)
+        self.root.setProperty("selectedDexIndex", first_page_size - 1)
         self.activate("Next →")
-        self.assertEqual(self.root.property("selectedDexIndex"), 24)
+        self.assertEqual(self.root.property("selectedDexIndex"), first_page_size)
         self.activate("Back to Pokédex")
         self.assertEqual(self.root.property("selectedDexIndex"), -1)
         self.assertEqual(self.window.view_model.dexPage, 2)
@@ -652,6 +655,35 @@ class QmlKeyboardTests(unittest.TestCase):
         self.root.setProperty("currentPage", 4)
         self.key(Qt.Key_Right)
         self.assertEqual(self.root.property("selectedDexIndex"), 0)
+
+    def test_pokedex_pages_fit_the_visible_grid_after_resize(self):
+        self.root.setProperty("currentPage", 1)
+        page = self.root.findChild(QObject, "collectionPage")
+        grid = self.root.findChild(QObject, "dexGrid")
+
+        def settle_layout():
+            for _ in range(4):
+                QTest.qWait(40)
+                self.window.grab()
+                self.app.processEvents()
+
+        self.window.resize(520, 640)
+        settle_layout()
+        compact_size = len(self.window.view_model.dexEntries)
+        self.assertGreater(self.window.view_model.dexPageCount, 1)
+        self.assertLessEqual(page.property("contentHeight"), page.property("availableHeight") + 1)
+        self.assertEqual(compact_size % grid.property("columns"), 0)
+
+        self.key(Qt.Key_Right)
+        anchored_species = self.window.view_model.dexEntries[0]["speciesId"]
+        self.window.resize(820, 1000)
+        settle_layout()
+        self.assertGreater(len(self.window.view_model.dexEntries), compact_size)
+        self.assertIn(
+            anchored_species,
+            [row["speciesId"] for row in self.window.view_model.dexEntries],
+        )
+        self.assertLessEqual(page.property("contentHeight"), page.property("availableHeight") + 1)
 
     def test_collection_can_be_paged_and_switched_using_keyboard(self):
         self.root.setProperty("currentPage", 1)
