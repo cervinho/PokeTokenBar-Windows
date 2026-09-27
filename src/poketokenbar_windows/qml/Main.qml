@@ -2174,44 +2174,58 @@ Rectangle {
                                 font.pixelSize: 15
                                 font.weight: Font.Medium
                             }
-                            Text {
-                                objectName: "aboutBuildVersion"
-                                text: appModel.strings.about_version + " " + appModel.buildVersion
-                                color: root.mutedColor
-                                font.pixelSize: 12
-                            }
-                            Text {
-                                objectName: "aboutUpdateStatus"
+                            RowLayout {
                                 Layout.fillWidth: true
-                                text: {
-                                    switch (appModel.updateStatus) {
-                                    case "checking": return appModel.strings.update_checking
-                                    case "available": return root.format(appModel.strings.update_available, {version: appModel.latestVersion})
-                                    case "current": return root.format(appModel.strings.update_current, {version: appModel.latestVersion})
-                                    case "no_release": return appModel.strings.update_no_release
-                                    case "offline": return appModel.strings.update_offline
-                                    case "invalid": return appModel.strings.update_invalid
-                                    default: return appModel.strings.update_idle
+                                spacing: 12
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    spacing: 5
+                                    Text {
+                                        objectName: "aboutBuildVersion"
+                                        Layout.fillWidth: true
+                                        text: appModel.strings.about_version + " " + appModel.buildVersion
+                                        color: root.mutedColor
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                                    }
+                                    Text {
+                                        objectName: "aboutUpdateStatus"
+                                        Layout.fillWidth: true
+                                        text: {
+                                            switch (appModel.updateStatus) {
+                                            case "checking": return appModel.strings.update_checking
+                                            case "available": return root.format(appModel.strings.update_available, {version: appModel.latestVersion})
+                                            case "current": return root.format(appModel.strings.update_current, {version: appModel.latestVersion})
+                                            case "no_release": return appModel.strings.update_no_release
+                                            case "offline": return appModel.strings.update_offline
+                                            case "invalid": return appModel.strings.update_invalid
+                                            default: return appModel.strings.update_idle
+                                            }
+                                        }
+                                        color: appModel.updateStatus === "available" ? root.warningColor : root.mutedColor
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
                                     }
                                 }
-                                color: appModel.updateStatus === "available" ? root.warningColor : root.mutedColor
-                                font.pixelSize: 12
-                                wrapMode: Text.WordWrap
-                            }
-                            RowLayout {
-                                spacing: 8
-                                AppButton {
-                                    objectName: "checkUpdatesButton"
-                                    text: appModel.strings.update_check
-                                    enabled: appModel.updateStatus !== "checking"
-                                    onClicked: appModel.checkUpdates()
-                                }
-                                AppButton {
-                                    objectName: "viewReleaseButton"
-                                    text: appModel.strings.update_view_release
-                                    visible: appModel.updateStatus === "available"
-                                    highlighted: true
-                                    onClicked: appModel.openRelease()
+                                ColumnLayout {
+                                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                    spacing: 6
+                                    AppButton {
+                                        objectName: "checkUpdatesButton"
+                                        Layout.alignment: Qt.AlignRight
+                                        text: appModel.strings.update_check
+                                        enabled: appModel.updateStatus !== "checking"
+                                        onClicked: appModel.checkUpdates()
+                                    }
+                                    AppButton {
+                                        objectName: "viewReleaseButton"
+                                        Layout.alignment: Qt.AlignRight
+                                        text: appModel.strings.update_view_release
+                                        visible: appModel.updateStatus === "available"
+                                        highlighted: true
+                                        onClicked: appModel.openRelease()
+                                    }
                                 }
                             }
                         }

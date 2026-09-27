@@ -160,6 +160,30 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertLessEqual(about.mapToItem(self.root, 0, 0).y() + about.height(),
                              settings.mapToItem(self.root, 0, 0).y() + settings.height() + 1)
 
+    def test_about_actions_align_right_without_covering_text(self):
+        self.window.resize(520, 640)
+        self.root.setProperty("currentPage", 4)
+        about = self.root.findChild(QObject, "aboutSettingsPanel")
+        version = self.root.findChild(QObject, "aboutBuildVersion")
+        message = self.root.findChild(QObject, "aboutUpdateStatus")
+        check = self.root.findChild(QObject, "checkUpdatesButton")
+        release = self.root.findChild(QObject, "viewReleaseButton")
+        for language in ("en", "es", "gl"):
+            self.window.view_model.setLanguage(language)
+            for state in (UpdateState("no_release"), UpdateState("offline"),
+                          UpdateState("available", "v1.1.0",
+                                      "https://github.com/pnmartinez/PokeTokenBar-Windows/releases/tag/v1.1.0")):
+                self.window.view_model.set_update_state(state)
+                QTest.qWait(20)
+                text_right = message.mapToItem(about, message.width(), 0).x()
+                button_left = check.mapToItem(about, 0, 0).x()
+                self.assertLessEqual(text_right + 8, button_left)
+                self.assertGreaterEqual(version.mapToItem(about, 0, 0).x(), 10)
+                for button in (check, release):
+                    if button.isVisible():
+                        position = button.mapToItem(about, 0, 0)
+                        self.assertLessEqual(position.x() + button.width(), about.width() - 10)
+                        self.assertLessEqual(position.y() + button.height(), about.height() - 10)
     def test_backup_buttons_keep_bottom_padding_in_settings(self):
         self.window.resize(520, 640)
         self.root.setProperty("currentPage", 4)
