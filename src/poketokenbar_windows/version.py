@@ -18,10 +18,9 @@ class BuildIdentity:
 
     @property
     def label(self) -> str:
-        if self.release:
-            return f"v{self.version}"
         short = self.commit[:7] if self.commit else "unknown"
-        return f"v{self.version}-dev · {short}"
+        suffix = "" if self.release else "-dev"
+        return f"v{self.version}{suffix} · {short}"
 
 
 def _git(root: Path, *args: str) -> str:

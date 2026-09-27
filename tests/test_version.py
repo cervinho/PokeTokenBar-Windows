@@ -20,7 +20,7 @@ class VersionTests(unittest.TestCase):
         with patch("poketokenbar_windows.version._git", side_effect=["a" * 40, f"v{__version__}"]):
             release = build_identity(source_root=Path("unused"))
         self.assertEqual(development.label, f"v{__version__}-dev · aaaaaaa")
-        self.assertEqual(release.label, f"v{__version__}")
+        self.assertEqual(release.label, f"v{__version__} · aaaaaaa")
         self.assertFalse(development.release)
         self.assertTrue(release.release)
 
@@ -34,7 +34,7 @@ class VersionTests(unittest.TestCase):
                         "version": __version__, "commit": commit, "release": release
                     }), encoding="utf-8")
                     identity = build_identity(manifest_path=path)
-                    self.assertEqual(identity.label, f"v{__version__}" if release else f"v{__version__}-dev · aaaaaaa")
+                    self.assertEqual(identity.label, f"v{__version__} · aaaaaaa" if release else f"v{__version__}-dev · aaaaaaa")
             path.write_text('{"version": "9.9.9", "commit": "wrong", "release": true}', encoding="utf-8")
             identity = build_identity(manifest_path=path)
             self.assertFalse(identity.release)
