@@ -160,6 +160,15 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertLessEqual(about.mapToItem(self.root, 0, 0).y() + about.height(),
                              settings.mapToItem(self.root, 0, 0).y() + settings.height() + 1)
 
+    def test_backup_buttons_keep_bottom_padding_in_settings(self):
+        self.window.resize(520, 640)
+        self.root.setProperty("currentPage", 4)
+        QTest.qWait(30)
+        panel = self.root.findChild(QObject, "appearanceSettingsPanel")
+        for name in ("exportBackupButton", "importBackupButton"):
+            button = self.root.findChild(QObject, name)
+            bottom = button.mapToItem(panel, 0, button.height()).y()
+            self.assertGreaterEqual(panel.height() - bottom, 10)
     def test_update_states_and_data_light_are_distinct(self):
         label = self.root.findChild(QObject, "aboutUpdateStatus")
         link = self.root.findChild(QObject, "footerUpdateLink")

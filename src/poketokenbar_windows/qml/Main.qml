@@ -2125,9 +2125,11 @@ Rectangle {
                         }
 
                         Panel {
+                            objectName: "appearanceSettingsPanel"
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 260
+                            Layout.preferredHeight: appearanceContent.implicitHeight + 24
                             ColumnLayout {
+                                id: appearanceContent
                                 anchors.fill: parent; anchors.margins: 12; spacing: 7
                                 Text { text: appModel.strings.appearance_data; color: root.textColor; font.pixelSize: 15; font.weight: Font.Medium }
                                 RowLayout {
@@ -2148,8 +2150,8 @@ Rectangle {
                                 ToggleRow { objectName: "trayLimitToggle"; label: appModel.strings.tray_limit; detail: appModel.strings.tray_limit_help; checked: appModel.trayShowLimit; onChanged: value => appModel.setPreference("trayShowLimit", value) }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    AppButton { text: appModel.strings.export_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestExport() }
-                                    AppButton { text: appModel.strings.import_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestImport() }
+                                    AppButton { objectName: "exportBackupButton"; text: appModel.strings.export_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestExport() }
+                                    AppButton { objectName: "importBackupButton"; text: appModel.strings.import_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestImport() }
                                 }
                             }
                         }
