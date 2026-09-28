@@ -9,7 +9,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QObject, QSettings, Qt
+from PySide6.QtCore import QObject, QPoint, QPointF, QSettings, Qt
 from PySide6.QtGui import QAccessible, QFont, QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
@@ -622,6 +622,41 @@ class QmlKeyboardTests(unittest.TestCase):
             self.assertIn(catch_label, self.window.view_model.catches[0]["meta"])
             self.assertEqual(self.state.mon.nature, "Hardy")
             self.assertEqual(self.state.catches[0].nature, "Hardy")
+
+    def test_middle_click_autoscrolls_captures_and_stops_on_second_click(self):
+        self.root.setProperty("currentPage", 1)
+        self.root.setProperty("collectionMode", "catches")
+        QTest.qWait(60)
+        page = self.root.findChild(QObject, "collectionPage")
+        auto_scroll = page.findChild(QObject, "pageAutoScroll")
+        flickable = page.property("contentItem")
+        self.assertGreater(flickable.property("contentHeight"), flickable.property("height"))
+        start = page.mapToScene(QPointF(page.width() / 2, 150)).toPoint()
+        lower = QPoint(start.x(), min(self.window.quick.height() - 20, start.y() + 170))
+        QTest.mouseMove(self.window.quick, start)
+        QTest.mouseClick(self.window.quick, Qt.MiddleButton, pos=start)
+        self.assertTrue(auto_scroll.property("scrolling"))
+        QTest.mouseMove(self.window.quick, lower)
+        QTest.qWait(180)
+        self.assertGreater(flickable.property("contentY"), 0)
+        QTest.mouseClick(self.window.quick, Qt.MiddleButton, pos=lower)
+        self.assertFalse(auto_scroll.property("scrolling"))
+
+    def test_middle_click_uses_the_nested_limit_scroll(self):
+        page = self.root.findChild(QObject, "homePage")
+        page_scroll = page.findChild(QObject, "pageAutoScroll")
+        providers = self.root.findChild(QObject, "limitsContent")
+        list_scroll = providers.findChild(QObject, "limitsContentAutoScroll")
+        self.assertGreater(providers.property("contentHeight"), providers.property("height"))
+        start = providers.mapToScene(QPointF(providers.width() / 2, providers.height() / 2)).toPoint()
+        lower = QPoint(start.x(), start.y() + 30)
+        QTest.mouseMove(self.window.quick, start)
+        QTest.mouseClick(self.window.quick, Qt.MiddleButton, pos=start)
+        self.assertTrue(list_scroll.property("scrolling"))
+        self.assertFalse(page_scroll.property("scrolling"))
+        QTest.mouseMove(self.window.quick, lower)
+        QTest.qWait(180)
+        self.assertGreater(providers.property("contentY"), 0)
 
     def test_egg_guarantee_uses_the_display_language(self):
         self.state.mon = None

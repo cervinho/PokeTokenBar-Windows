@@ -13,6 +13,7 @@ Rectangle {
 
     property int currentPage: 0
     property var activeTooltip: null
+    HoverHandler { id: appPointer; acceptedDevices: PointerDevice.Mouse }
     Connections {
         target: appModel
         function onDataChanged() {
@@ -219,7 +220,85 @@ Rectangle {
         onConfirmed: appModel.buy(selection.kind, selection.key)
     }
 
+    component MiddleAutoScroll: Item {
+        id: autoScroll
+        required property var flickable
+        property bool scrolling: false
+        property real originX: 0
+        property real originY: 0
+        readonly property bool canScroll: flickable && flickable.contentHeight > flickable.height + 1
+        z: 20
+
+        function stop() { scrolling = false }
+        onVisibleChanged: if (!visible) stop()
+        onCanScrollChanged: if (!canScroll) stop()
+        Connections {
+            target: appModel
+            function onDataChanged() {
+                if (!appModel.windowActive) autoScroll.stop()
+            }
+        }
+        TapHandler {
+            acceptedDevices: PointerDevice.Mouse
+            acceptedButtons: Qt.MiddleButton
+            onTapped: (point, button) => {
+                if (autoScroll.scrolling) {
+                    autoScroll.stop()
+                } else if (autoScroll.canScroll) {
+                    autoScroll.originX = point.position.x
+                    autoScroll.originY = point.position.y
+                    autoScroll.scrolling = true
+                }
+            }
+        }
+        TapHandler {
+            enabled: autoScroll.scrolling
+            acceptedDevices: PointerDevice.Mouse
+            acceptedButtons: Qt.LeftButton
+            onTapped: autoScroll.stop()
+        }
+        Timer {
+            interval: 16
+            repeat: true
+            running: autoScroll.scrolling
+            onTriggered: {
+                if (!autoScroll.visible || !autoScroll.canScroll || !appPointer.hovered) {
+                    autoScroll.stop()
+                    return
+                }
+                const pointer = autoScroll.mapFromItem(
+                    root, appPointer.point.position.x, appPointer.point.position.y
+                )
+                const distance = pointer.y - autoScroll.originY
+                const beyondDeadZone = Math.max(0, Math.abs(distance) - 12)
+                if (beyondDeadZone === 0) return
+                const step = Math.sign(distance) * Math.min(36, beyondDeadZone * 0.12)
+                const maxY = Math.max(0, autoScroll.flickable.contentHeight - autoScroll.flickable.height)
+                autoScroll.flickable.contentY = Math.max(0, Math.min(maxY, autoScroll.flickable.contentY + step))
+            }
+        }
+        Rectangle {
+            visible: autoScroll.scrolling
+            x: Math.max(2, Math.min(autoScroll.width - width - 2, autoScroll.originX - width / 2))
+            y: Math.max(2, Math.min(autoScroll.height - height - 2, autoScroll.originY - height / 2))
+            width: 28
+            height: 28
+            radius: 14
+            color: root.panelColor
+            border.color: root.accentColor
+            border.width: 1
+            Text { anchors.centerIn: parent; text: "↕"; color: root.accentColor; font.pixelSize: 18 }
+        }
+    }
+
     component PageScroll: ScrollView {
+        id: pageScroll
+        MiddleAutoScroll {
+            objectName: "pageAutoScroll"
+            parent: pageScroll
+            anchors.fill: parent
+            flickable: pageScroll.contentItem
+        }
         function revealItem(item) {
             const flickable = contentItem
             const position = item.mapToItem(flickable.contentItem, 0, 0)
@@ -1457,6 +1536,12 @@ Rectangle {
                             ListView {
                                 id: providersList
                                 objectName: "providersList"
+                                MiddleAutoScroll {
+                                    objectName: "providersListAutoScroll"
+                                    parent: providersList
+                                    anchors.fill: parent
+                                    flickable: providersList
+                                }
                                 boundsBehavior: Flickable.StopAtBounds
                                 interactive: contentHeight > height
                                 Layout.fillWidth: true
@@ -1502,6 +1587,12 @@ Rectangle {
                             ListView {
                                 id: limitsContent
                                 objectName: "limitsContent"
+                                MiddleAutoScroll {
+                                    objectName: "limitsContentAutoScroll"
+                                    parent: limitsContent
+                                    anchors.fill: parent
+                                    flickable: limitsContent
+                                }
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 clip: true
