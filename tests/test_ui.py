@@ -695,7 +695,9 @@ class UITests(unittest.TestCase):
         with patch.object(QMessageBox, "question", side_effect=AssertionError("native dialog")):
             with patch.object(QMessageBox, "warning", side_effect=AssertionError("native dialog")):
                 controller._buy_item("rare_candy")
+                self.assertEqual(window.view_model.feedbackText, "✓ Compra realizada")
                 controller._buy_egg("rare")
+                self.assertEqual(window.view_model.feedbackText, "✓ Ovo novo preparado")
         self.assertEqual(controller.state.inventory["rare_candy"], 1)
         self.assertIsNone(controller.state.mon)
         self.assertEqual(controller.state.spent_tokens, 4_500_000_000)

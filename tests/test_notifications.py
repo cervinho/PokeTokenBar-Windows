@@ -178,6 +178,13 @@ class CompanionNotificationTests(unittest.TestCase):
                     (notification.title, notification.body, notification.use_sprite_icon), expected
                 )
 
+    def test_companion_notifications_use_the_selected_language(self):
+        notification = companion_notification("candy:2:codex", "Pikachu", "gl")
+        self.assertIsNotNone(notification)
+        assert notification is not None
+        self.assertEqual(notification.title, "Caramelo Raro conseguido!")
+        self.assertEqual(notification.body, "Conseguiches 2 Caramelos Raros.")
+
     def test_unknown_events_are_ignored(self):
         self.assertIsNone(companion_notification("unknown:event", "Pikachu"))
 

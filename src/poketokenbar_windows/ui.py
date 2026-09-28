@@ -2550,13 +2550,16 @@ class TrayController(QObject):
         for event in result.events:
             if event.startswith("hatched:"):
                 shiny = bool(result.state.mon and result.state.mon.is_shiny)
-                self.window.celebrate(f"{result.display_name} hatched!", shiny=shiny)
+                self.window.celebrate(
+                    translated_text(result.state.language, "hatched_toast", name=result.display_name),
+                    shiny=shiny,
+                )
             elif event.startswith("evolved:"):
                 self.window.celebrate(
-                    f"Your companion evolved into {result.display_name}!"
+                    translated_text(result.state.language, "evolved_toast", name=result.display_name)
                 )
             elif event.startswith("graduated:"):
-                self.window.celebrate("Your companion graduated! A new egg is ready.")
+                self.window.celebrate(translated_text(result.state.language, "graduated_toast"))
         limit_alerts, self.limit_alert_tiers = evaluate_limit_alerts(
             result.limits,
             self.limit_alert_tiers,
@@ -2631,7 +2634,7 @@ class TrayController(QObject):
         self._schedule_qa_capture()
         if self.companion_notifications_enabled:
             for event in result.events:
-                notification = companion_notification(event, result.display_name)
+                notification = companion_notification(event, result.display_name, result.state.language)
                 if notification is None:
                     continue
                 if notification.use_sprite_icon:
@@ -2733,6 +2736,12 @@ class TrayController(QObject):
             )
             return False
         message_keys = {
+            "Purchased": "purchased",
+            "Fresh egg ready": "fresh_egg_ready",
+            "Not enough tokens": "not_enough_tokens",
+            "Shiny Charm is already active": "shiny_charm_already_active",
+            "Unknown item": "unknown_item",
+            "Passive items cannot be used": "passive_item",
             "Rare Candy used": "rare_candy_used",
             "Nature changed": "nature_changed",
             "Item not in bag": "item_not_in_bag",

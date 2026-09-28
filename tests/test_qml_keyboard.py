@@ -623,6 +623,22 @@ class QmlKeyboardTests(unittest.TestCase):
             self.assertEqual(self.state.mon.nature, "Hardy")
             self.assertEqual(self.state.catches[0].nature, "Hardy")
 
+    def test_egg_guarantee_uses_the_display_language(self):
+        self.state.mon = None
+        for language, tier, expected in (
+            ("gl", "rare", "Agardando para eclosionar · Raro ou mellor"),
+            ("gl", "uncommon", "Agardando para eclosionar · Pouco común ou mellor"),
+            ("es", "rare", "Esperando para eclosionar · Raro o mejor"),
+            ("en", "rare", "Waiting to hatch · Rare or better"),
+        ):
+            self.state.language = language
+            self.state.egg_tier = tier
+            self.window.render(RefreshResult(
+                UsageSnapshot(scanned_at=datetime.now(timezone.utc)),
+                {}, {}, self.state, [], None, "Pokemon Egg",
+            ))
+            self.assertEqual(self.window.view_model.companionSubtitle, expected)
+
     def test_catch_log_renders_evolution_arrows(self):
         state = GameState(
             mon=MonState(1, [1, 2, 3], 1, 10, "common", False, "Hardy"),

@@ -199,8 +199,8 @@ class QmlViewModel(QObject):
             "toastText": "",
             "toastShiny": False,
             "revealActive": False,
-            "companionName": "Pokémon Egg",
-            "companionSubtitle": "Preparing your companion",
+            "companionName": translated_text(language, "pokemon_egg"),
+            "companionSubtitle": translated_text(language, "waiting_to_hatch", tier=""),
             "companionProgress": 0,
             "companionProgressText": f"0 / {compact_tokens(EGG_HATCH_THRESHOLD)}",
             "companionLevelText": "Lv. 0",
@@ -536,7 +536,10 @@ class QmlViewModel(QObject):
         level_prefix = "Lv." if language == "en" else "Nv."
         if state.mon is None:
             name = self._tr("pokemon_egg")
-            tier = f" · {state.egg_tier.title()}+" if state.egg_tier else ""
+            tier = (
+                " · " + self._tr("egg_tier_guarantee", rarity=self._tr(state.egg_tier))
+                if state.egg_tier else ""
+            )
             subtitle = self._tr("waiting_to_hatch", tier=tier)
             evolution_text = self._tr("hatch_hint")
             value = state.egg_usage
