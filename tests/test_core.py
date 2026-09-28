@@ -62,6 +62,7 @@ from poketokenbar_windows.state import (
     apply_usage,
     buy_egg,
     companion_progress_percent,
+    plan_rare_candy_use,
     usage_delta,
     use_item,
 )
@@ -290,6 +291,37 @@ class StateTests(unittest.TestCase):
         self.assertEqual(message, "No Pokemon to use a Rare Candy on")
         self.assertEqual(events, [])
         self.assertEqual(state.inventory["rare_candy"], 1)
+
+    def test_multiple_candies_carry_through_evolution_and_stop_at_graduation(self):
+        state = GameState(
+            mon=MonState(403, [403, 404, 405], 1, 40_000_000, "common", False, "Hardy"),
+            catches=[CatchRecord(404, 403, [403, 404, 405], "common", False, "Hardy", "2026-09-28")],
+            inventory={"rare_candy": 10},
+        )
+        plan = plan_rare_candy_use(state, 99)
+        self.assertIsNotNone(plan)
+        self.assertEqual((plan.count, plan.max_count, plan.next_count, plan.completion_count), (6, 6, 3, 6))
+        self.assertTrue(plan.graduated)
+        self.assertEqual(plan.discarded_xp, 15_000_000)
+        ok, _, events = use_item(state, "rare_candy", FakeAPI(), count=3)
+        self.assertTrue(ok)
+        self.assertEqual(events, ["evolved:405"])
+        self.assertEqual((state.mon.stage_index, state.mon.used_at_stage), (2, 90_000_000))
+        self.assertEqual(state.inventory["rare_candy"], 7)
+        ok, _, events = use_item(state, "rare_candy", FakeAPI(), count=99)
+        self.assertTrue(ok)
+        self.assertEqual(events, ["graduated:405"])
+        self.assertIsNone(state.mon)
+        self.assertEqual(state.egg_usage, 0)
+        self.assertEqual(state.inventory["rare_candy"], 4)
+
+    def test_candy_plan_requires_an_active_pokemon_and_available_stock(self):
+        self.assertIsNone(plan_rare_candy_use(GameState(inventory={"rare_candy": 5}), 3))
+        state = GameState(mon=MonState(1, [1], 0, 0, "common", False, "Hardy"))
+        self.assertIsNone(plan_rare_candy_use(state, 3))
+        state.inventory["rare_candy"] = 1
+        self.assertIsNone(plan_rare_candy_use(state, 0))
+        self.assertEqual(plan_rare_candy_use(state, 3).count, 1)
 
     def test_limit_candy_is_once_per_window_after_initial_seed(self):
         state = GameState()

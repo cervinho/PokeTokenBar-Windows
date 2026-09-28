@@ -432,7 +432,9 @@ def usage_delta(
     return delta
 
 
-def apply_usage(state: GameState, delta: int, api: PokeAPIClient) -> list[str]:
+def apply_usage(
+    state: GameState, delta: int, api: PokeAPIClient, *, carry_after_graduation: bool = True
+) -> list[str]:
     events: list[str] = []
     remaining = max(0, delta)
     while remaining > 0:
@@ -488,12 +490,63 @@ def apply_usage(state: GameState, delta: int, api: PokeAPIClient) -> list[str]:
             events.append(f"evolved:{mon.current_id}")
             continue
 
-        # Final form completed: archive it and start a fresh egg; overflow carries.
+        # Final form completed: archive it and start a fresh egg. Actual usage carries
+        # onward, while Rare Candy discards the excess after graduation.
         events.append(f"graduated:{mon.current_id}")
         state.mon = None
         state.egg_usage = 0
         state.egg_tier = None
+        if not carry_after_graduation:
+            break
     return events
+
+
+@dataclass(frozen=True, slots=True)
+class RareCandyPlan:
+    count: int
+    max_count: int
+    next_count: int
+    completion_count: int
+    result_id: int
+    graduated: bool
+    discarded_xp: int
+
+
+def plan_rare_candy_use(state: GameState, requested: int) -> RareCandyPlan | None:
+    mon = state.mon
+    stock = max(0, state.inventory.get("rare_candy", 0))
+    if mon is None or not mon.path_ids or stock == 0 or requested <= 0:
+        return None
+    stage = min(max(0, mon.stage_index), len(mon.path_ids) - 1)
+    costs = [
+        phase_threshold(mon.rarity, len(mon.path_ids), index, 2 if mon.has_growth_boost else 1)
+        for index in range(stage, len(mon.path_ids))
+    ]
+    completion_count = max(0, sum(costs) - mon.used_at_stage + RARE_CANDY_XP - 1) // RARE_CANDY_XP
+    max_count = min(stock, completion_count)
+    if max_count == 0:
+        return None
+    count = min(requested, max_count)
+    next_count = (
+        max(1, (max(0, costs[0] - mon.used_at_stage) + RARE_CANDY_XP - 1) // RARE_CANDY_XP)
+        if stage < len(mon.path_ids) - 1 else 0
+    )
+    remaining = mon.used_at_stage + count * RARE_CANDY_XP
+    result_stage = stage
+    graduated = False
+    for cost in costs:
+        if remaining < cost:
+            break
+        remaining -= cost
+        if result_stage == len(mon.path_ids) - 1:
+            graduated = True
+            break
+        result_stage += 1
+    return RareCandyPlan(
+        count=count, max_count=max_count, next_count=next_count,
+        completion_count=completion_count, result_id=mon.path_ids[result_stage],
+        graduated=graduated, discarded_xp=remaining if graduated else 0,
+    )
 
 
 def buy_item(state: GameState, item: str) -> tuple[bool, str]:
@@ -510,14 +563,21 @@ def buy_item(state: GameState, item: str) -> tuple[bool, str]:
     return True, "Purchased"
 
 
-def use_item(state: GameState, item: str, api: PokeAPIClient) -> tuple[bool, str, list[str]]:
+def use_item(
+    state: GameState, item: str, api: PokeAPIClient, count: int = 1
+) -> tuple[bool, str, list[str]]:
     if state.inventory.get(item, 0) <= 0:
         return False, "Item not in bag", []
     if item == "rare_candy":
         if state.mon is None:
             return False, "No Pokemon to use a Rare Candy on", []
-        state.inventory[item] -= 1
-        events = apply_usage(state, RARE_CANDY_XP, api)
+        plan = plan_rare_candy_use(state, count)
+        if plan is None:
+            return False, "Rare Candy unavailable", []
+        state.inventory[item] -= plan.count
+        events = apply_usage(
+            state, plan.count * RARE_CANDY_XP, api, carry_after_graduation=False
+        )
         return True, "Rare Candy used", events
     if item == "mint":
         if state.mon is None:
@@ -544,7 +604,7 @@ def buy_egg(state: GameState, tier: str | None) -> tuple[bool, str]:
     state.spent_tokens += price
     current = _current_catch(state)
     released_at = datetime.now().astimezone().isoformat()
-    reached_path = (mon.path_ids or [mon.base_id])[:mon.stage_index + 1]
+    reached_path = (mon.path_ids or [mon.base_id])[:max(1, mon.stage_index + 1)]
     # A release keeps reached forms in the Pokédex but never counts as graduation.
     if current is None:
         state.catches.append(CatchRecord(
