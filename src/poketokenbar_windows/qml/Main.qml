@@ -12,6 +12,13 @@ Rectangle {
     border.width: 1
 
     property int currentPage: 0
+    property var activeTooltip: null
+    Connections {
+        target: appModel
+        function onDataChanged() {
+            if (!appModel.windowActive) root.activeTooltip = null
+        }
+    }
     onCurrentPageChanged: Qt.callLater(root.syncDexViewport)
     property int trendHoveredIndex: -1
     property string collectionMode: "dex"
@@ -176,7 +183,7 @@ Rectangle {
     component FocusFrame: Rectangle {
         anchors.fill: parent
         anchors.margins: -2
-        visible: parent.activeFocus
+        visible: parent.visualFocus
         color: "transparent"
         radius: 6
         border.width: 2
@@ -358,11 +365,16 @@ Rectangle {
     component AppToolTip: ToolTip {
         id: tooltip
         property bool requestedVisible: false
-        visible: requestedVisible && appModel.windowActive
+        visible: requestedVisible && appModel.windowActive && root.activeTooltip === tooltip
+        onRequestedVisibleChanged: {
+            if (requestedVisible && appModel.windowActive) root.activeTooltip = tooltip
+            else if (root.activeTooltip === tooltip) root.activeTooltip = null
+        }
         delay: 550
         timeout: 5000
         padding: 8
-        width: Math.min(320, Math.max(72, text.length * 6.3 + 20))
+        TextMetrics { id: textMetrics; font.pixelSize: 11; text: tooltip.text }
+        width: Math.min(320, Math.max(32, Math.ceil(textMetrics.advanceWidth) + 2 * padding))
         contentItem: Text {
             text: tooltip.text
             color: root.textColor
@@ -475,8 +487,8 @@ Rectangle {
         background: Rectangle {
             radius: 8
             color: root.panelAltColor
-            border.color: styledCombo.activeFocus ? root.accentColor : root.borderColor
-            border.width: styledCombo.activeFocus ? 2 : 1
+            border.color: styledCombo.visualFocus ? root.accentColor : root.borderColor
+            border.width: styledCombo.visualFocus ? 2 : 1
         }
         contentItem: Text {
             leftPadding: 11
@@ -550,8 +562,8 @@ Rectangle {
         background: Rectangle {
             color: root.panelAltColor
             radius: 8
-            border.color: styledSpin.activeFocus ? root.accentColor : root.borderColor
-            border.width: styledSpin.activeFocus ? 2 : 1
+            border.color: styledSpin.visualFocus ? root.accentColor : root.borderColor
+            border.width: styledSpin.visualFocus ? 2 : 1
         }
         contentItem: Text {
             text: styledSpin.textFromValue(styledSpin.value, styledSpin.locale)
@@ -634,8 +646,8 @@ Rectangle {
             color: control.enabled
                 ? (control.highlighted ? root.accentColor : (control.hovered ? root.accentSurface : root.panelAltColor))
                 : (root.darkMode ? "#1a2230" : "#edf0f4")
-            border.color: control.activeFocus ? root.accentColor : (control.highlighted ? "transparent" : root.borderColor)
-            border.width: control.activeFocus ? 2 : 1
+            border.color: control.visualFocus ? root.accentColor : (control.highlighted ? "transparent" : root.borderColor)
+            border.width: control.visualFocus ? 2 : 1
         }
     }
 
@@ -649,7 +661,7 @@ Rectangle {
         activeFocusOnTab: true
         Accessible.name: helpText
         Accessible.role: Accessible.Button
-        AppToolTip { requestedVisible: windowControl.hovered || windowControl.activeFocus; delay: 500; text: helpText }
+        AppToolTip { requestedVisible: windowControl.hovered || windowControl.visualFocus; delay: 500; text: helpText }
         padding: 0
         contentItem: Item {
             Canvas {
@@ -723,14 +735,14 @@ Rectangle {
         Accessible.name: nav.text
         Accessible.description: nav.description
         Accessible.role: Accessible.PageTab
-        AppToolTip { objectName: "navigationTooltip-" + nav.pageIndex; requestedVisible: nav.hovered || nav.activeFocus; text: nav.description }
+        AppToolTip { objectName: "navigationTooltip-" + nav.pageIndex; requestedVisible: nav.hovered || nav.visualFocus; text: nav.description }
         implicitHeight: 38
         onClicked: root.currentPage = pageIndex
         background: Rectangle {
             radius: 7
             color: nav.checked ? root.accentSurface : (nav.hovered ? root.panelAltColor : "transparent")
-            border.color: nav.activeFocus ? root.accentColor : "transparent"
-            border.width: nav.activeFocus ? 2 : 0
+            border.color: nav.visualFocus ? root.accentColor : "transparent"
+            border.width: nav.visualFocus ? 2 : 0
             Rectangle {
                 visible: nav.checked
                 anchors.left: parent.left
@@ -850,7 +862,7 @@ Rectangle {
         }
         HoverHandler { id: toggleHover }
         AppToolTip {
-            requestedVisible: (toggleHover.hovered || toggle.activeFocus) && toggleRow.detail.length > 0
+            requestedVisible: (toggleHover.hovered || toggle.visualFocus) && toggleRow.detail.length > 0
             text: toggleRow.detail
         }
         Switch {
@@ -906,8 +918,8 @@ Rectangle {
         background: Rectangle {
             radius: 7
             color: chip.checked ? root.accentSurface : "transparent"
-            border.color: chip.activeFocus ? root.accentColor : (chip.checked ? root.accentColor : root.borderColor)
-            border.width: chip.activeFocus || chip.checked ? 2 : 1
+            border.color: chip.visualFocus ? root.accentColor : (chip.checked ? root.accentColor : root.borderColor)
+            border.width: chip.visualFocus || chip.checked ? 2 : 1
         }
     }
 
@@ -952,7 +964,7 @@ Rectangle {
                     background: Rectangle {
                         radius: 5
                         color: optionButton.checked ? root.panelColor : "transparent"
-                        border.color: optionButton.activeFocus ? root.accentColor : (optionButton.checked ? root.borderColor : "transparent")
+                        border.color: optionButton.visualFocus ? root.accentColor : (optionButton.checked ? root.borderColor : "transparent")
                     }
                 }
             }
@@ -1118,7 +1130,7 @@ Rectangle {
                                         onClicked: appModel.requestRefresh()
                                         AppToolTip {
                                             objectName: "refreshTooltip"
-                                            requestedVisible: parent.hovered || parent.activeFocus
+                                            requestedVisible: parent.hovered || parent.visualFocus
                                             text: appModel.strings.refresh_shortcut_help
                                         }
                                     }
@@ -1560,7 +1572,7 @@ Rectangle {
                                             color: root.accentColor
                                         }
                                         Rectangle {
-                                            visible: collectionTab.activeFocus
+                                            visible: collectionTab.visualFocus
                                             anchors.fill: parent
                                             radius: 6
                                             color: "transparent"
@@ -2122,7 +2134,7 @@ Rectangle {
                                         Accessible.name: appModel.strings.desktop_representative
                                         Accessible.description: appModel.strings.representative_help
                                         AppToolTip {
-                                            requestedVisible: hovered || activeFocus
+                                            requestedVisible: hovered || visualFocus
                                             text: appModel.strings.representative_help
                                         }
                                         FocusFrame { }

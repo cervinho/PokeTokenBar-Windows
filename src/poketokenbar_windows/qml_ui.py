@@ -543,8 +543,14 @@ class QmlViewModel(QObject):
             name = self.api.localized_name(mon.current_id, language)
             shiny = "✨ " if mon.is_shiny else ""
             rarity = self._tr(mon.rarity)
+            nature = localized_nature(mon.nature, language)
+            nature_label = (
+                f"{self._tr('nature').capitalize()} {nature.lower()}"
+                if language in {"gl", "es"}
+                else f"{nature} {self._tr('nature')}"
+            )
             subtitle = (
-                f"{shiny}{rarity} · {localized_nature(mon.nature, language)} {self._tr('nature')} · "
+                f"{shiny}{rarity} · {nature_label} · "
                 f"{self._tr('stage')} {mon.stage_index + 1}/{len(mon.path_ids)}"
             )
             value = mon.used_at_stage
@@ -1171,7 +1177,8 @@ class QmlViewModel(QObject):
 
     @Slot()
     def requestRefresh(self) -> None:
-        self.refreshRequested.emit()
+        if self.refreshEnabled:
+            self.refreshRequested.emit()
 
     @Slot()
     def minimizeWindow(self) -> None:

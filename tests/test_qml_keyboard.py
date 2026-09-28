@@ -608,14 +608,18 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertEqual(self.window.view_model.dexPage, previous_page + 1)
 
     def test_natures_follow_display_language_without_changing_saved_state(self):
-        for language, label in (("gl", "Forte"), ("es", "Fuerte"), ("en", "Hardy")):
+        for language, subtitle, catch_label in (
+            ("gl", "Natureza forte", "Forte"),
+            ("es", "Naturaleza fuerte", "Fuerte"),
+            ("en", "Hardy nature", "Hardy"),
+        ):
             self.state.language = language
             self.window.render(RefreshResult(
                 UsageSnapshot(scanned_at=datetime.now(timezone.utc)),
                 {}, {}, self.state, [], None, "Pokemon 2",
             ))
-            self.assertIn(label, self.window.view_model.companionSubtitle)
-            self.assertIn(label, self.window.view_model.catches[0]["meta"])
+            self.assertIn(subtitle, self.window.view_model.companionSubtitle)
+            self.assertIn(catch_label, self.window.view_model.catches[0]["meta"])
             self.assertEqual(self.state.mon.nature, "Hardy")
             self.assertEqual(self.state.catches[0].nature, "Hardy")
 
@@ -655,13 +659,16 @@ class QmlKeyboardTests(unittest.TestCase):
         self.window.activateWindow()
         QTest.qWait(20)
         requests = []
-        self.window.refresh_requested.connect(lambda: requests.append(True))
+        def begin_refresh():
+            requests.append(True)
+            self.window.view_model.set_refresh_enabled(False)
+
+        self.window.refresh_requested.connect(begin_refresh)
         self.root.setProperty("currentPage", 0)
         self.key(Qt.Key_F5)
-        self.assertEqual(len(requests), 1)
-        self.window.view_model.set_refresh_enabled(False)
         self.key(Qt.Key_F5)
         self.assertEqual(len(requests), 1)
+        self.assertFalse(self.window.view_model.refreshEnabled)
 
     def test_tooltips_use_the_panel_focus_and_refresh_hint(self):
         self.window.activateWindow()
@@ -674,6 +681,17 @@ class QmlKeyboardTests(unittest.TestCase):
         QTest.qWait(20)
         self.assertTrue(self.window.view_model.windowActive)
         self.assertTrue(tip.property("visible"))
+        self.assertLess(tip.property("width"), 320)
+        refresh_tip.setProperty("delay", 0)
+        refresh_tip.setProperty("requestedVisible", True)
+        QTest.qWait(20)
+        self.assertFalse(tip.property("visible"))
+        self.assertTrue(refresh_tip.property("visible"))
+        refresh_tip.setProperty("requestedVisible", False)
+        tip.setProperty("requestedVisible", False)
+        tip.setProperty("requestedVisible", True)
+        QTest.qWait(20)
+        self.assertTrue(tip.property("visible"))
         other = QWidget()
         self.addCleanup(other.close)
         other.show()
@@ -681,6 +699,17 @@ class QmlKeyboardTests(unittest.TestCase):
         QTest.qWait(30)
         self.assertFalse(self.window.view_model.windowActive)
         self.assertFalse(tip.property("visible"))
+
+    def test_mouse_focus_does_not_look_like_keyboard_focus(self):
+        self.window.activateWindow()
+        home = self.control("Home")
+        point = home.mapToItem(self.root, home.width() / 2, home.height() / 2)
+        QTest.mouseClick(self.window.quick, Qt.LeftButton, pos=point.toPoint())
+        self.assertTrue(home.property("activeFocus"))
+        self.assertFalse(home.property("visualFocus"))
+        self.key(Qt.Key_Tab)
+        collection = self.control("Collection")
+        self.assertTrue(collection.property("visualFocus"))
 
     def test_arrow_keys_navigate_pokedex_page_and_detail(self):
         self.window.activateWindow()
