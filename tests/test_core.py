@@ -334,14 +334,35 @@ class StateTests(unittest.TestCase):
         self.assertEqual(grants, ["candy:5:codex:Luna Reserve"])
         self.assertEqual(state.inventory["rare_candy"], 5)
 
-    def test_fresh_egg_discards_active_ungraduated_catch(self):
+    def test_fresh_egg_keeps_reached_forms_as_released_not_completed(self):
         state = GameState(install_baseline_set=True, used_since_install=2_000_000_000)
         apply_usage(state, EGG_HATCH_THRESHOLD, FakeAPI())
         self.assertEqual(len(state.catches), 1)
         ok, _ = buy_egg(state, None)
         self.assertTrue(ok)
         self.assertIsNone(state.mon)
-        self.assertEqual(state.catches, [])
+        self.assertEqual(state.catches[0].path_ids, [1])
+        self.assertIsNotNone(state.catches[0].released_at)
+        self.assertEqual(state.catches[0].species_id, 1)
+        self.assertEqual(state.spent_tokens, 1_000_000_000)
+
+    def test_egg_cannot_be_replaced_while_incubating_or_bought_with_invalid_tier(self):
+        state = GameState(egg_usage=2_000_000, used_since_install=10_000_000_000)
+        self.assertFalse(buy_egg(state, "rare")[0])
+        self.assertEqual((state.egg_usage, state.spent_tokens), (2_000_000, 0))
+        state.mon = MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy")
+        self.assertFalse(buy_egg(state, "legendary")[0])
+        self.assertEqual(state.spent_tokens, 0)
+
+    def test_released_catch_round_trips_with_backward_compatible_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = StateStore(Path(tmp) / "state.json")
+            state = GameState(catches=[CatchRecord(1, 1, [1], "common", True, "Hardy", "2026-09-28", "2026-09-28")])
+            store.save(state)
+            self.assertEqual(store.load().catches[0].released_at, "2026-09-28")
+            raw = json.loads(store.path.read_text(encoding="utf-8"))
+            del raw["catches"][0]["released_at"]
+            self.assertIsNone(StateStore.parse_state(raw).catches[0].released_at)
 
     def test_state_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -952,7 +973,7 @@ class RepeatGrowthTests(unittest.TestCase):
             path.write_text(json.dumps(old_release_save), encoding="utf-8")
             self.assertTrue(store.load().mon.has_growth_boost)
 
-    def test_discarded_unfinished_catch_does_not_unlock_boost(self):
+    def test_released_unfinished_catch_does_not_unlock_boost(self):
         state = GameState(
             mon=MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy"),
             catches=[CatchRecord(1, 1, [1, 2, 3], "common", False, "Hardy", "2026-09-01")],
@@ -961,6 +982,8 @@ class RepeatGrowthTests(unittest.TestCase):
         self.assertTrue(buy_egg(state, None)[0])
         apply_usage(state, EGG_HATCH_THRESHOLD, FakeAPI())
         self.assertFalse(state.mon.has_growth_boost)
+        self.assertEqual(len(state.catches), 2)
+        self.assertIsNotNone(state.catches[0].released_at)
 
     def test_legacy_active_pokemon_defaults_to_normal_growth(self):
         with tempfile.TemporaryDirectory() as folder:

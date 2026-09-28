@@ -58,6 +58,7 @@ class CatchRecord:
     is_shiny: bool
     nature: str
     caught_at: str
+    released_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -101,16 +102,17 @@ class RepresentativeSubject:
 
 def _current_catch(state: GameState) -> CatchRecord | None:
     mon = state.mon
-    if mon is None:
+    if mon is None or not state.catches:
         return None
-    for catch in reversed(state.catches):
-        if (
-            catch.base_id == mon.base_id
-            and catch.path_ids == mon.path_ids
-            and catch.nature == mon.nature
-            and catch.is_shiny == mon.is_shiny
-        ):
-            return catch
+    catch = state.catches[-1]
+    if (
+        catch.released_at is None
+        and catch.base_id == mon.base_id
+        and catch.path_ids == mon.path_ids
+        and catch.nature == mon.nature
+        and catch.is_shiny == mon.is_shiny
+    ):
+        return catch
     return None
 
 
@@ -442,7 +444,10 @@ def apply_usage(state: GameState, delta: int, api: PokeAPIClient) -> list[str]:
             if state.egg_usage < EGG_HATCH_THRESHOLD:
                 break
             hatch = api.hatch(minimum_rarity=state.egg_tier, shiny_charm=state.shiny_charm_active)
-            has_growth_boost = any(catch.base_id == hatch.base_id for catch in state.catches)
+            has_growth_boost = any(
+                catch.base_id == hatch.base_id and catch.released_at is None
+                for catch in state.catches
+            )
             state.mon = MonState(
                 base_id=hatch.base_id,
                 path_ids=hatch.path_ids,
@@ -528,16 +533,28 @@ def use_item(state: GameState, item: str, api: PokeAPIClient) -> tuple[bool, str
 
 
 def buy_egg(state: GameState, tier: str | None) -> tuple[bool, str]:
+    if tier not in (None, "uncommon", "rare"):
+        return False, "Egg unavailable"
+    if state.mon is None:
+        return False, "No Pokemon to release"
     price = egg_price(tier)
     if state.wallet < price:
         return False, "Not enough tokens"
+    mon = state.mon
     state.spent_tokens += price
-    if state.mon is not None and state.catches:
-        # The upstream Pokédex synthesizes the currently-raised Pokemon and only
-        # persists it on graduation. Buying a fresh egg discards that active catch.
-        last = state.catches[-1]
-        if last.base_id == state.mon.base_id and last.path_ids == state.mon.path_ids:
-            state.catches.pop()
+    current = _current_catch(state)
+    released_at = datetime.now().astimezone().isoformat()
+    reached_path = (mon.path_ids or [mon.base_id])[:mon.stage_index + 1]
+    # A release keeps reached forms in the Pokédex but never counts as graduation.
+    if current is None:
+        state.catches.append(CatchRecord(
+            mon.current_id, mon.base_id, reached_path, mon.rarity,
+            mon.is_shiny, mon.nature, released_at, released_at,
+        ))
+    else:
+        current.path_ids = reached_path
+        current.species_id = mon.current_id
+        current.released_at = released_at
     state.mon = None
     state.egg_usage = 0
     state.egg_tier = tier

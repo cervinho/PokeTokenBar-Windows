@@ -556,8 +556,10 @@ class UITests(unittest.TestCase):
         self.assertTrue(model.dexEntries[0]["representative"])
         self.assertFalse(model.dexEntries[0]["followingCurrent"])
 
+        self.assertFalse(model.dexEntries[0]["hasNormal"])
         model.toggleDexVariant(1)
-        self.assertFalse(model.dexEntries[0]["representative"])
+        self.assertTrue(model.dexEntries[0]["showShiny"])
+        self.assertTrue(model.dexEntries[0]["representative"])
 
     def test_qml_dex_supports_paging_rarity_filters_and_shiny_variants(self):
         catches = [
@@ -590,7 +592,16 @@ class UITests(unittest.TestCase):
 
         model.toggleDexVariant(25)
         shiny = next(row for row in model.dexEntries if row["speciesId"] == 25)
-        self.assertFalse(shiny["showShiny"])
+        self.assertTrue(shiny["showShiny"])
+        self.assertFalse(shiny["hasNormal"])
+
+        model.state.catches.append(CatchRecord(25, 25, [25], "rare", False, "Hardy", "2026-09-01"))
+        model.set_state(model.state)
+        shiny = next(row for row in model.dexEntries if row["speciesId"] == 25)
+        self.assertTrue(shiny["hasNormal"])
+        model.toggleDexVariant(25)
+        normal = next(row for row in model.dexEntries if row["speciesId"] == 25)
+        self.assertFalse(normal["showShiny"])
 
     def test_qml_catch_history_exposes_current_and_future_evolution_stages(self):
         state = GameState(
@@ -611,6 +622,28 @@ class UITests(unittest.TestCase):
             model.catches[0]["description"],
             "Only stage 2 of 3",
         )
+
+    def test_capture_status_distinguishes_final_stage_release_and_completion(self):
+        current = CatchRecord(405, 403, [403, 404, 405], "common", False, "Hardy", "2026-09-28")
+        released = CatchRecord(404, 403, [403, 404], "common", True, "Hardy", "2026-09-27", "2026-09-28")
+        completed = CatchRecord(405, 403, [403, 404, 405], "common", False, "Hardy", "2026-09-26")
+        state = GameState(
+            mon=MonState(403, [403, 404, 405], 2, 50_000_000, "common", False, "Hardy"),
+            catches=[completed, released, current], language="gl",
+        )
+        model = QmlViewModel(state, self.settings, FakeUIAPI())
+        self.assertEqual([row["statusLabel"] for row in model.catches],
+                         ["EN CRIANZA", "LIBERADO", "COMPLETADO"])
+        self.assertIn("faltan", model.catches[0]["description"])
+        self.assertEqual(model.catches[1]["description"], "Liberado antes de completar a crianza")
+
+    def test_shop_eggs_are_visible_but_disabled_during_incubation(self):
+        model = QmlViewModel(GameState(egg_usage=2_000_000, used_since_install=10_000_000_000, language="gl"),
+                             self.settings, FakeUIAPI())
+        eggs = [row for row in model.shopItems if row["kind"] == "egg"]
+        self.assertEqual(len(eggs), 3)
+        self.assertTrue(all(not row["enabled"] for row in eggs))
+        self.assertTrue(all(row["disabledReason"] == "Eclosiona o ovo antes de mercar outro." for row in eggs))
 
     def test_bag_and_new_notification_preferences_are_localized_and_persisted(self):
         state = GameState(language="gl", inventory={"rare_candy": 28, "mint": 2})

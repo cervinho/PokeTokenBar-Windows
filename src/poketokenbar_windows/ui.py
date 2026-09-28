@@ -2738,6 +2738,8 @@ class TrayController(QObject):
         message_keys = {
             "Purchased": "purchased",
             "Fresh egg ready": "fresh_egg_ready",
+            "No Pokemon to release": "egg_requires_companion",
+            "Egg unavailable": "egg_unavailable",
             "Not enough tokens": "not_enough_tokens",
             "Shiny Charm is already active": "shiny_charm_already_active",
             "Unknown item": "unknown_item",
@@ -2799,7 +2801,7 @@ class TrayController(QObject):
         tier_label = (tier or "normal").title()
         warning = f"Buy a {tier_label} Egg?"
         if self.state.mon is not None:
-            warning += "\n\nThis replaces your active companion and its unfinished catch."
+            warning += "\n\nThe companion stays in your Pokédex as released, without completing its growth."
             if self.state.mon.is_shiny:
                 warning += "\n\n⚠ Your active companion is Shiny. This cannot be undone."
         if not isinstance(self.window, QmlMainWindow):

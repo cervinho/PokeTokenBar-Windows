@@ -1781,7 +1781,7 @@ Rectangle {
                                 id: dexCard
                                 required property var modelData
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: modelData.hasShiny ? 210 : 174
+                                Layout.preferredHeight: modelData.hasShiny && modelData.hasNormal ? 210 : 174
                                 border.color: modelData.representative
                                     ? root.successColor
                                     : (dexCardButton.hovered ? root.accentColor : root.borderColor)
@@ -1815,7 +1815,7 @@ Rectangle {
                                     Text { text: modelData.name; color: root.textColor; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight; Layout.fillWidth: true }
                                     AppButton {
                                         Layout.fillWidth: true
-                                        visible: modelData.hasShiny
+                                        visible: modelData.hasShiny && modelData.hasNormal
                                         text: modelData.showShiny ? "Normal" : "Shiny"
                                         accessibleName: root.format(modelData.showShiny ? appModel.strings.view_normal : appModel.strings.view_shiny, {name: modelData.name})
                                         onClicked: appModel.toggleDexVariant(modelData.speciesId)
@@ -1897,7 +1897,7 @@ Rectangle {
                                     Layout.fillWidth: true
                                 }
                                 AppButton {
-                                    visible: !!root.selectedDex.hasShiny
+                                    visible: !!root.selectedDex.hasShiny && !!root.selectedDex.hasNormal
                                     text: root.selectedDex.showShiny ? "Normal" : "Shiny"
                                     onClicked: appModel.toggleDexVariant(root.selectedDex.speciesId)
                                 }
@@ -1984,9 +1984,9 @@ Rectangle {
                                         objectName: "raisingBadge"
                                         anchors.right: parent.right
                                         anchors.top: parent.top
-                                        visible: modelData.current
-                                        text: appModel.strings.raising
-                                        color: root.accentColor
+                                        text: modelData.statusLabel
+                                        color: modelData.released ? root.warningColor :
+                                               (modelData.current ? root.accentColor : root.successColor)
                                         font.pixelSize: 10
                                         font.weight: Font.Medium
                                     }
@@ -2121,7 +2121,7 @@ Rectangle {
                             Panel {
                                 required property var modelData
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 172
+                                Layout.preferredHeight: modelData.disabledReason.length ? 192 : 172
                                 ColumnLayout {
                                     anchors.fill: parent
                                     anchors.margins: 12
@@ -2165,6 +2165,7 @@ Rectangle {
                                         }
                                     }
                                     Text { text: modelData.subtitle; color: root.mutedColor; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                                    Text { visible: modelData.disabledReason.length > 0; text: modelData.disabledReason; color: root.mutedColor; font.pixelSize: 10; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                                     Item { Layout.fillHeight: true }
                                     AppButton {
                                         Layout.fillWidth: true

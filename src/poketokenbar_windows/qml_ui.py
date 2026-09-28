@@ -636,6 +636,9 @@ class QmlViewModel(QObject):
         mon = self.state.mon
         return bool(
             mon
+            and self.state.catches
+            and catch is self.state.catches[-1]
+            and catch.released_at is None
             and catch.base_id == mon.base_id
             and catch.path_ids == mon.path_ids
             and catch.nature == mon.nature
@@ -656,9 +659,11 @@ class QmlViewModel(QObject):
                         "speciesId": int(species_id),
                         "rarity": catch.rarity,
                         "hasShiny": False,
+                        "hasNormal": False,
                     },
                 )
                 row["hasShiny"] = bool(row["hasShiny"] or catch.is_shiny)
+                row["hasNormal"] = bool(row["hasNormal"] or not catch.is_shiny)
 
         selected_id = self.state.representative_species_id
         selected_shiny = bool(self.state.representative_is_shiny)
@@ -669,6 +674,7 @@ class QmlViewModel(QObject):
         rows: list[dict[str, Any]] = []
         for species_id, row in sorted(species.items()):
             has_shiny = bool(row["hasShiny"])
+            has_normal = bool(row["hasNormal"])
             default_shiny = has_shiny
             if selected_id == species_id:
                 default_shiny = selected_shiny
@@ -677,6 +683,8 @@ class QmlViewModel(QObject):
             show_shiny = self._dex_shiny_by_species.get(species_id, default_shiny)
             if not has_shiny:
                 show_shiny = False
+            elif not has_normal:
+                show_shiny = True
             is_representative = (
                 selected_id == species_id and selected_shiny == show_shiny
             ) or (
@@ -717,7 +725,7 @@ class QmlViewModel(QObject):
             first_row = True
             while index < len(rows):
                 row = rows[index : index + columns]
-                row_height = 210 if any(item["hasShiny"] for item in row) else 174
+                row_height = 210 if any(item["hasShiny"] and item["hasNormal"] for item in row) else 174
                 needed = row_height + (0 if first_row else 7)
                 if not first_row and occupied + needed > grid_height:
                     break
@@ -786,10 +794,20 @@ class QmlViewModel(QObject):
         for catch in reversed(self.state.catches):
             path_ids = catch.path_ids or [catch.species_id]
             is_current = self._is_current_catch(catch)
+            is_released = catch.released_at is not None
             owned_index = len(path_ids) - 1
             if is_current and self.state.mon is not None:
                 owned_index = min(len(path_ids) - 1, self.state.mon.stage_index)
             display_id = path_ids[owned_index]
+            if is_released:
+                description = self._tr("released_catch_description")
+            elif is_current and self.state.mon is not None and owned_index == len(path_ids) - 1:
+                remaining = max(0, self.state.mon.stage_threshold - self.state.mon.used_at_stage)
+                description = self._tr("final_stage_in_progress", remaining=compact_tokens(remaining))
+            elif owned_index == len(path_ids) - 1:
+                description = self._tr("fully_evolved")
+            else:
+                description = self._tr("have_only_stage", stage=owned_index + 1, total=len(path_ids))
             stages = []
             for index, species_id in enumerate(path_ids):
                 owned = index <= owned_index
@@ -824,15 +842,11 @@ class QmlViewModel(QObject):
                     "meta": f"{self._tr(catch.rarity)} · {localized_nature(catch.nature, self._language())} · {catch.caught_at[:10]}",
                     "shiny": bool(catch.is_shiny),
                     "current": is_current,
-                    "description": (
-                        self._tr("fully_evolved")
-                        if owned_index == len(path_ids) - 1
-                        else self._tr(
-                            "have_only_stage",
-                            stage=owned_index + 1,
-                            total=len(path_ids),
-                        )
+                    "released": is_released,
+                    "statusLabel": self._tr(
+                        "raising" if is_current else ("catch_released" if is_released else "catch_graduated")
                     ),
+                    "description": description,
                     "stages": stages,
                     "sprite": _file_url(
                         self.api.sprite_path(
@@ -866,7 +880,8 @@ class QmlViewModel(QObject):
                     "icon": icon,
                     "eggTier": key if kind == "egg" else "",
                     "price": compact_tokens(price),
-                    "enabled": wallet >= price and not owned,
+                    "enabled": wallet >= price and not owned and not (kind == "egg" and self.state.mon is None),
+                    "disabledReason": self._tr("egg_requires_companion") if kind == "egg" and self.state.mon is None else "",
                     "owned": owned,
                 }
             )
@@ -1317,9 +1332,10 @@ class QmlViewModel(QObject):
     @Slot(int)
     def toggleDexVariant(self, species_id: int) -> None:
         species_id = int(species_id)
-        self._dex_shiny_by_species[species_id] = not self._dex_shiny_by_species.get(
-            species_id, True
-        )
+        row = next((item for item in self._all_dex_rows() if item["speciesId"] == species_id), None)
+        if row is None or not (row["hasNormal"] and row["hasShiny"]):
+            return
+        self._dex_shiny_by_species[species_id] = not row["showShiny"]
         self._refresh_dex_rows()
         self.dataChanged.emit()
 
