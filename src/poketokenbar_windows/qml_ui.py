@@ -1291,6 +1291,15 @@ class QmlViewModel(QObject):
         return max(1, bisect_right(self._dex_page_starts, int(index)))
 
     @Slot(int)
+    def showDexIndex(self, index: int) -> None:
+        target = self.dexPageForIndex(index) - 1
+        if target == self._dex_page:
+            return
+        self._dex_page = target
+        self._refresh_dex_rows()
+        self.dataChanged.emit()
+
+    @Slot(int)
     def toggleDexVariant(self, species_id: int) -> None:
         species_id = int(species_id)
         self._dex_shiny_by_species[species_id] = not self._dex_shiny_by_species.get(

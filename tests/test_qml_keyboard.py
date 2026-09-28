@@ -582,6 +582,31 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertEqual(self.root.property("selectedDexIndex"), -1)
         self.assertEqual(self.window.view_model.dexPage, 2)
 
+    def test_back_to_pokedex_keeps_species_after_detail_resize(self):
+        self.root.setProperty("currentPage", 1)
+        self.window.resize(820, 1000)
+        for _ in range(4):
+            QTest.qWait(40)
+            self.window.grab()
+        self.root.openDex(18)
+        self.window.resize(520, 640)
+        for _ in range(4):
+            QTest.qWait(40)
+            self.window.grab()
+        self.root.closeDex()
+        for _ in range(4):
+            QTest.qWait(40)
+            self.window.grab()
+        self.assertIn(
+            18, [row["speciesId"] for row in self.window.view_model.dexEntries]
+        )
+        page = self.root.findChild(QObject, "collectionPage")
+        self.assertLessEqual(page.property("contentHeight"), page.property("availableHeight") + 1)
+        previous_page = self.window.view_model.dexPage
+        self.window.activateWindow()
+        self.key(Qt.Key_Right)
+        self.assertEqual(self.window.view_model.dexPage, previous_page + 1)
+
     def test_natures_follow_display_language_without_changing_saved_state(self):
         for language, label in (("gl", "Forte"), ("es", "Fuerte"), ("en", "Hardy")):
             self.state.language = language

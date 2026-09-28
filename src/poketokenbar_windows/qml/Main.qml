@@ -16,10 +16,14 @@ Rectangle {
     property int trendHoveredIndex: -1
     property string collectionMode: "dex"
     property int selectedDexIndex: -1
+    property int returnDexIndex: -1
     readonly property var selectedDex: selectedDexIndex >= 0 && selectedDexIndex < appModel.dexBrowseEntries.length
         ? appModel.dexBrowseEntries[selectedDexIndex] : ({})
     onCollectionModeChanged: {
-        if (collectionMode !== "dex") selectedDexIndex = -1
+        if (collectionMode !== "dex") {
+            selectedDexIndex = -1
+            returnDexIndex = -1
+        }
         collectionPage.contentItem.contentY = 0
         Qt.callLater(root.syncDexViewport)
     }
@@ -28,6 +32,7 @@ Rectangle {
     function openDex(speciesId) {
         for (let index = 0; index < appModel.dexBrowseEntries.length; ++index) {
             if (appModel.dexBrowseEntries[index].speciesId === speciesId) {
+                returnDexIndex = -1
                 selectedDexIndex = index
                 collectionPage.contentItem.contentY = 0
                 return
@@ -36,10 +41,13 @@ Rectangle {
     }
 
     function closeDex() {
-        if (selectedDexIndex >= 0)
-            appModel.moveDexPage(appModel.dexPageForIndex(selectedDexIndex) - appModel.dexPage)
+        if (selectedDexIndex < 0)
+            return
+        returnDexIndex = selectedDexIndex
+        appModel.showDexIndex(returnDexIndex)
         selectedDexIndex = -1
         collectionPage.contentItem.contentY = 0
+        Qt.callLater(root.syncDexViewport)
     }
 
     function syncDexViewport() {
@@ -52,6 +60,8 @@ Rectangle {
             - dexPagination.height - collectionContent.spacing - 4
         )
         appModel.setDexViewport(dexGrid.columns, height)
+        if (returnDexIndex >= 0)
+            appModel.showDexIndex(returnDexIndex)
     }
 
     function navigateDex(direction) {
@@ -63,6 +73,7 @@ Rectangle {
                 return
             root.selectedDexIndex = next
         } else {
+            returnDexIndex = -1
             appModel.moveDexPage(direction)
         }
         collectionPage.contentItem.contentY = 0
@@ -864,7 +875,10 @@ Rectangle {
         implicitWidth: chipContent.implicitWidth + 18
         Accessible.name: root.format(appModel.strings.filter_by, {label: label})
         Accessible.role: Accessible.RadioButton
-        onClicked: appModel.setDexFilter(filterKey)
+        onClicked: {
+            root.returnDexIndex = -1
+            appModel.setDexFilter(filterKey)
+        }
         contentItem: RowLayout {
             id: chipContent
             spacing: 6
