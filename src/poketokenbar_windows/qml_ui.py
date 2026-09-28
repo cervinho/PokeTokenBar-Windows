@@ -238,6 +238,7 @@ class QmlViewModel(QObject):
             "mintCount": 0,
             "shinyCharmActive": False,
             "hasActiveCompanion": state.mon is not None,
+            "activeCompanionShiny": bool(state.mon and state.mon.is_shiny),
             "representativeFollowsCurrent": state.representative_species_id is None,
             "refreshMinutes": int(settings.value("refresh_minutes", 5)),
             "petEnabled": settings_bool(settings.value(PET_ENABLED_KEY, False), False),
@@ -420,6 +421,9 @@ class QmlViewModel(QObject):
     hasActiveCompanion = Property(
         bool, lambda self: self._values["hasActiveCompanion"], notify=dataChanged
     )
+    activeCompanionShiny = Property(
+        bool, lambda self: self._values["activeCompanionShiny"], notify=dataChanged
+    )
     representativeFollowsCurrent = Property(
         bool, lambda self: self._values["representativeFollowsCurrent"], notify=dataChanged
     )
@@ -578,6 +582,7 @@ class QmlViewModel(QObject):
             mintCount=int(state.inventory.get("mint", 0)),
             shinyCharmActive=state.shiny_charm_active,
             hasActiveCompanion=state.mon is not None,
+            activeCompanionShiny=bool(state.mon and state.mon.is_shiny),
             representativeFollowsCurrent=state.representative_species_id is None,
             language=language,
             strings=ui_strings(language),

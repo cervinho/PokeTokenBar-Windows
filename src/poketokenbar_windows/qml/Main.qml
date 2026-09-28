@@ -124,16 +124,19 @@ Rectangle {
         function onActiveFocusItemChanged() { Qt.callLater(root.revealKeyboardFocus) }
     }
 
-    Popup {
-        id: useItemPopup
-        objectName: "useItemPopup"
-        property string itemKind: ""
-        function confirm(kind) { itemKind = kind; open() }
+    component ActionPopup: Popup {
+        id: actionPopup
+        property string headingText: ""
+        property string questionText: ""
+        property string detailText: ""
+        property string dangerText: ""
+        property string confirmText: ""
+        signal confirmed()
         parent: Overlay.overlay
         x: Math.round((root.width - width) / 2)
         y: Math.round((root.height - height) / 2)
         width: Math.min(370, root.width - 32)
-        height: 158
+        height: Math.min(root.height - 32, Math.max(158, contentItem.implicitHeight + 2 * padding))
         modal: true
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -142,11 +145,30 @@ Rectangle {
         background: Rectangle { color: root.panelColor; radius: 12; border.color: root.borderColor; border.width: 1 }
         contentItem: ColumnLayout {
             spacing: 11
-            Text { text: appModel.strings.use_item_title; color: root.textColor; font.pixelSize: 17; font.weight: Font.DemiBold }
+            Text { text: actionPopup.headingText; color: root.textColor; font.pixelSize: 17; font.weight: Font.DemiBold }
             Text {
+                objectName: "actionQuestionText"
                 Layout.fillWidth: true
-                text: root.format(appModel.strings.use_item_question, {item: useItemPopup.itemKind === "rare_candy" ? appModel.strings.rare_candy : appModel.strings.mint})
+                text: actionPopup.questionText
                 color: root.mutedColor
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                objectName: "actionDetailText"
+                Layout.fillWidth: true
+                visible: actionPopup.detailText.length > 0
+                text: actionPopup.detailText
+                color: root.mutedColor
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                objectName: "actionDangerText"
+                Layout.fillWidth: true
+                visible: actionPopup.dangerText.length > 0
+                text: actionPopup.dangerText
+                color: root.warningColor
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
             }
@@ -154,18 +176,47 @@ Rectangle {
             RowLayout {
                 Layout.alignment: Qt.AlignRight
                 spacing: 8
-                AppButton { text: appModel.strings.cancel; onClicked: useItemPopup.close() }
+                AppButton { text: appModel.strings.cancel; onClicked: actionPopup.close() }
                 AppButton {
-                    text: appModel.strings.confirm_use
+                    text: actionPopup.confirmText
                     highlighted: true
                     onClicked: {
-                        const kind = useItemPopup.itemKind
-                        useItemPopup.close()
-                        appModel.useItem(kind)
+                        actionPopup.close()
+                        actionPopup.confirmed()
                     }
                 }
             }
         }
+    }
+
+    ActionPopup {
+        id: useItemPopup
+        objectName: "useItemPopup"
+        property string itemKind: ""
+        function confirm(kind) { itemKind = kind; open() }
+        headingText: appModel.strings.use_item_title
+        questionText: root.format(appModel.strings.use_item_question, {
+            item: itemKind === "rare_candy" ? appModel.strings.rare_candy : appModel.strings.mint
+        })
+        confirmText: appModel.strings.confirm_use
+        onConfirmed: appModel.useItem(itemKind)
+    }
+
+    ActionPopup {
+        id: purchasePopup
+        objectName: "purchasePopup"
+        property var selection: ({kind: "item", key: "", title: "", price: ""})
+        function confirm(item) { selection = item; open() }
+        headingText: selection.kind === "egg" ? appModel.strings.buy_egg_title : appModel.strings.buy_item_title
+        questionText: root.format(appModel.strings.purchase_question, {
+            item: selection.title, price: selection.price
+        })
+        detailText: selection.kind === "egg" && appModel.hasActiveCompanion
+            ? appModel.strings.egg_replacement_warning : ""
+        dangerText: selection.kind === "egg" && appModel.activeCompanionShiny
+            ? appModel.strings.egg_shiny_warning : ""
+        confirmText: selection.kind === "egg" ? appModel.strings.confirm_buy_egg : appModel.strings.confirm_buy_item
+        onConfirmed: appModel.buy(selection.kind, selection.key)
     }
 
     component PageScroll: ScrollView {
@@ -2030,7 +2081,7 @@ Rectangle {
                                         accessibleName: root.format(appModel.strings.buy, {title: modelData.title, price: text})
                                         highlighted: modelData.enabled
                                         enabled: modelData.enabled
-                                        onClicked: appModel.buy(modelData.kind, modelData.key)
+                                        onClicked: purchasePopup.confirm(modelData)
                                     }
                                 }
                             }

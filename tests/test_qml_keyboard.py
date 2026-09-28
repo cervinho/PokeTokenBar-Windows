@@ -711,6 +711,54 @@ class QmlKeyboardTests(unittest.TestCase):
         collection = self.control("Collection")
         self.assertTrue(collection.property("visualFocus"))
 
+    def test_shop_purchase_modal_confirms_items_and_warns_about_eggs(self):
+        self.root.setProperty("currentPage", 3)
+        QTest.qWait(80)
+        popup = self.root.findChild(QObject, "purchasePopup")
+        items = []
+        eggs = []
+        self.window.buy_item_requested.connect(items.append)
+        self.window.buy_egg_requested.connect(eggs.append)
+
+        def press_popup(label):
+            button = next(
+                item for item in self.controls(popup.property("contentItem"))
+                if self.name(item) == label
+            )
+            button.forceActiveFocus(Qt.TabFocusReason)
+            self.key(Qt.Key_Space)
+            QTest.qWait(20)
+
+        self.activate("Buy Rare Candy: 500M tokens")
+        self.assertTrue(popup.property("visible"))
+        question = popup.findChild(QObject, "actionQuestionText")
+        self.assertEqual(question.property("text"), "Buy Rare Candy for 500M tokens?")
+        self.assertEqual(items, [])
+        press_popup("Cancel")
+        self.assertFalse(popup.property("visible"))
+        self.assertEqual(items, [])
+
+        self.activate("Buy Rare Candy: 500M tokens")
+        press_popup("Buy item")
+        self.assertFalse(popup.property("visible"))
+        self.assertEqual(items, ["rare_candy"])
+
+        self.state.language = "gl"
+        self.state.mon.is_shiny = True
+        self.window.set_state(self.state)
+        self.activate("Mercar Ovo raro: 4B tokens")
+        detail = popup.findChild(QObject, "actionDetailText")
+        danger = popup.findChild(QObject, "actionDangerText")
+        self.assertEqual(question.property("text"), "Mercar Ovo raro por 4B tokens?")
+        self.assertTrue(detail.property("visible"))
+        self.assertIn("substituirá", detail.property("text"))
+        self.assertTrue(danger.property("visible"))
+        self.assertIn("shiny", danger.property("text"))
+        self.assertGreater(popup.property("height"), 158)
+        self.assertEqual(eggs, [])
+        press_popup("Mercar ovo")
+        self.assertEqual(eggs, ["rare"])
+
     def test_arrow_keys_navigate_pokedex_page_and_detail(self):
         self.window.activateWindow()
         QTest.qWait(20)

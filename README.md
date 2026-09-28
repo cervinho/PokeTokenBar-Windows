@@ -156,7 +156,7 @@ The active main window uses QML. The retained legacy Widgets `MainWindow` is not
 - QML Home does not yet show depletion forecasts, reset-credit rows, or a missing-Luna placeholder. It has a global refresh button, but no dedicated authentication/account recovery UI.
 - Provider detail currently shows today/week totals, not the legacy tabs or month/cost/token-type/model breakdown.
 - QML uses percentage progress and a scale transition rather than the legacy Home level label and Poké Ball reveal.
-- Shop and Bag still use native confirmation dialogs; inline confirmations and explanations for every disabled action remain planned.
+- Shop and Bag use matching in-app confirmation modals, including a stronger warning before replacing an active Shiny companion. Explanations for every disabled action remain planned.
 - See [ROADMAP.md](ROADMAP.md) for completed QML restoration work and the separate P1–P3 backlog.
 
 - Antigravity's protobuf-in-SQLite reader is not ported yet.

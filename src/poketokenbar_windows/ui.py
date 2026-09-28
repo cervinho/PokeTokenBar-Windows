@@ -2753,12 +2753,13 @@ class TrayController(QObject):
 
     def _buy_item(self, item: str) -> None:
         labels = {"rare_candy": "Rare Candy", "mint": "Mint", "shiny_charm": "Shiny Charm"}
-        if QMessageBox.question(
-            self.window,
-            "Confirm purchase",
-            f"Buy {labels.get(item, item)}?",
-        ) != QMessageBox.StandardButton.Yes:
-            return
+        if not isinstance(self.window, QmlMainWindow):
+            if QMessageBox.question(
+                self.window,
+                "Confirm purchase",
+                f"Buy {labels.get(item, item)}?",
+            ) != QMessageBox.StandardButton.Yes:
+                return
         self._mutate_state(lambda state: buy_item(state, item))
 
     def _use_item(self, item: str) -> None:
@@ -2792,14 +2793,15 @@ class TrayController(QObject):
             warning += "\n\nThis replaces your active companion and its unfinished catch."
             if self.state.mon.is_shiny:
                 warning += "\n\n⚠ Your active companion is Shiny. This cannot be undone."
-        if QMessageBox.warning(
-            self.window,
-            "Confirm fresh egg",
-            warning,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        ) != QMessageBox.StandardButton.Yes:
-            return
+        if not isinstance(self.window, QmlMainWindow):
+            if QMessageBox.warning(
+                self.window,
+                "Confirm fresh egg",
+                warning,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            ) != QMessageBox.StandardButton.Yes:
+                return
         if self._mutate_state(lambda state: buy_egg(state, tier)):
             self.refresh()
 

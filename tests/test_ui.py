@@ -678,6 +678,29 @@ class UITests(unittest.TestCase):
         self.assertFalse(window.progress.isTextVisible())
         self.assertEqual(window.progress.height(), 12)
 
+    def test_qml_shop_purchase_uses_the_in_app_confirmation(self):
+        state = GameState(
+            mon=MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy"),
+            used_since_install=10_000_000_000,
+            language="gl",
+        )
+        window = QmlMainWindow(state, self.settings, FakeUIAPI())
+        self.addCleanup(window.deleteLater)
+        controller = TrayController.__new__(TrayController)
+        controller.state_lock = threading.Lock()
+        controller.state = state
+        controller.store = Mock()
+        controller.window = window
+        controller.refresh = Mock()
+        with patch.object(QMessageBox, "question", side_effect=AssertionError("native dialog")):
+            with patch.object(QMessageBox, "warning", side_effect=AssertionError("native dialog")):
+                controller._buy_item("rare_candy")
+                controller._buy_egg("rare")
+        self.assertEqual(controller.state.inventory["rare_candy"], 1)
+        self.assertIsNone(controller.state.mon)
+        self.assertEqual(controller.state.spent_tokens, 4_500_000_000)
+        controller.refresh.assert_called_once_with()
+
     def test_using_rare_candy_requests_a_full_refresh_without_an_evolution(self):
         controller = TrayController.__new__(TrayController)
         controller.state_lock = threading.Lock()
