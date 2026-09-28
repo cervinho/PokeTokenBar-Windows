@@ -2156,6 +2156,9 @@ class TrayController(QObject):
     def _wire_shop_buttons(self) -> None:
         if isinstance(self.window, QmlMainWindow):
             self.window.use_item_requested.connect(self._use_item)
+            self.window.use_rare_candy_requested.connect(
+                lambda count: self._use_item("rare_candy", count)
+            )
             self.window.buy_item_requested.connect(self._buy_item)
             self.window.buy_egg_requested.connect(self._buy_egg)
             return
@@ -2745,12 +2748,17 @@ class TrayController(QObject):
             "Unknown item": "unknown_item",
             "Passive items cannot be used": "passive_item",
             "Rare Candy used": "rare_candy_used",
+            "Rare Candy unavailable": "no_pokemon_for_candy",
             "Nature changed": "nature_changed",
             "Item not in bag": "item_not_in_bag",
             "No Pokemon to use a Mint on": "no_pokemon_for_mint",
             "No Pokemon to use a Rare Candy on": "no_pokemon_for_candy",
         }
-        if message in message_keys:
+        if message.startswith("Rare Candy used:"):
+            message = translated_text(
+                self.state.language, "rare_candies_used", count=message.partition(":")[2]
+            )
+        elif message in message_keys:
             message = translated_text(self.state.language, message_keys[message])
         if not ok:
             QMessageBox.information(self.window, "PokeTokenBar", message)
@@ -2773,7 +2781,7 @@ class TrayController(QObject):
                 return
         self._mutate_state(lambda state: buy_item(state, item))
 
-    def _use_item(self, item: str) -> None:
+    def _use_item(self, item: str, count: int = 1) -> None:
         labels = {"rare_candy": "Rare Candy", "mint": "Mint"}
         if not isinstance(self.window, QmlMainWindow):
             if QMessageBox.question(
@@ -2786,7 +2794,7 @@ class TrayController(QObject):
                 return
         old_nature = self.state.mon.nature if self.state.mon else None
         self._mutate_state(
-            lambda state: use_item(state, item, self.api),
+            lambda state: use_item(state, item, self.api, count=count),
             refresh=item == "rare_candy",
         )
         if item == "mint" and self.state.mon and self.state.mon.nature != old_nature:

@@ -9,9 +9,9 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QObject, QPoint, QPointF, QSettings, Qt
+from PySide6.QtCore import QMetaObject, QObject, QPoint, QPointF, QSettings, Qt
 from PySide6.QtGui import QAccessible, QFont, QFontDatabase
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
 from poketokenbar_windows.models import (
@@ -761,6 +761,32 @@ class QmlKeyboardTests(unittest.TestCase):
         self.key(Qt.Key_Tab)
         collection = self.control("Collection")
         self.assertTrue(collection.property("visualFocus"))
+
+    def test_candy_modal_quick_targets_preview_without_spending_until_confirmation(self):
+        self.state.inventory["rare_candy"] = 10
+        self.state.mon.used_at_stage = 40_000_000
+        self.window.set_state(self.state)
+        self.root.setProperty("currentPage", 2)
+        popup = self.root.findChild(QObject, "candyPopup")
+        self.activate("Rare Candy: Use")
+        self.app.processEvents()
+        self.assertTrue(popup.property("visible"))
+        self.assertEqual(popup.property("options")["nextCount"], 3)
+        self.assertEqual(popup.property("options")["completionCount"], 6)
+        spy = QSignalSpy(self.window.use_rare_candy_requested)
+        next_button = popup.findChild(QObject, "candyNextQuick")
+        finish_button = popup.findChild(QObject, "candyFinishQuick")
+        self.assertTrue(QMetaObject.invokeMethod(next_button, "click"))
+        self.assertEqual(popup.property("selectedCount"), 3)
+        self.assertIn("evolves", popup.property("preview")["outcome"])
+        self.assertTrue(QMetaObject.invokeMethod(finish_button, "click"))
+        self.assertEqual(popup.property("selectedCount"), 6)
+        self.assertIn("15M", popup.property("preview")["discarded"])
+        self.assertEqual(self.state.inventory["rare_candy"], 10)
+        self.assertEqual(spy.count(), 0)
+        self.assertTrue(QMetaObject.invokeMethod(popup.findChild(QObject, "candyConfirmButton"), "click"))
+        self.assertEqual(spy.count(), 1)
+        self.assertEqual(spy.at(0)[0], 6)
 
     def test_shop_purchase_modal_confirms_items_and_warns_about_eggs(self):
         self.root.setProperty("currentPage", 3)

@@ -251,6 +251,25 @@ class UITests(unittest.TestCase):
         self.assertEqual(controller.state.mon.nature, "Lax")
         self.assertEqual(window.view_model.feedbackText, "✓ Nova natureza: Laxa")
 
+    def test_qml_batch_candy_controller_spends_selected_count_and_reports_it(self):
+        state = GameState(
+            mon=MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy"),
+            inventory={"rare_candy": 10}, language="gl",
+        )
+        window = QmlMainWindow(state, self.settings, FakeUIAPI())
+        self.addCleanup(window.deleteLater)
+        controller = TrayController.__new__(TrayController)
+        controller.state_lock = threading.Lock()
+        controller.state = state
+        controller.store = Mock()
+        controller.window = window
+        controller.api = FakeUIAPI()
+        controller.refresh = Mock()
+        controller._use_item("rare_candy", 3)
+        self.assertEqual(controller.state.inventory["rare_candy"], 7)
+        self.assertEqual(window.view_model.feedbackText, "✓ Usáronse 3 Caramelos Raros")
+        controller.refresh.assert_called_once_with()
+
     def test_month_trend_and_repeat_badge_fit_home_layout(self):
         state = GameState(mon=MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy", True), language="gl")
         window = QmlMainWindow(state, self.settings, FakeUIAPI())
@@ -636,6 +655,25 @@ class UITests(unittest.TestCase):
                          ["EN CRIANZA", "LIBERADO", "COMPLETADO"])
         self.assertIn("faltan", model.catches[0]["description"])
         self.assertEqual(model.catches[1]["description"], "Liberado antes de completar a crianza")
+
+    def test_candy_modal_options_respect_stock_and_localized_preview(self):
+        state = GameState(
+            mon=MonState(403, [403, 404, 405], 1, 40_000_000, "common", False, "Hardy"),
+            inventory={"rare_candy": 10}, language="gl",
+        )
+        model = QmlViewModel(state, self.settings, FakeUIAPI())
+        self.assertEqual(model.candyOptions()["maxCount"], 6)
+        self.assertEqual(model.candyOptions()["nextCount"], 3)
+        self.assertEqual(model.candyOptions()["completionCount"], 6)
+        self.assertIn("evoluciona", model.candyPreview(3)["outcome"])
+        self.assertIn("15M", model.candyPreview(6)["discarded"])
+        state.inventory["rare_candy"] = 2
+        model.set_state(state)
+        self.assertEqual(model.candyOptions()["maxCount"], 2)
+        self.assertEqual(model.candyPreview(99)["count"], 2)
+        state.mon = None
+        model.set_state(state)
+        self.assertEqual(model.candyOptions(), {})
 
     def test_shop_eggs_are_visible_but_disabled_during_incubation(self):
         model = QmlViewModel(GameState(egg_usage=2_000_000, used_since_install=10_000_000_000, language="gl"),

@@ -578,7 +578,8 @@ def use_item(
         events = apply_usage(
             state, plan.count * RARE_CANDY_XP, api, carry_after_graduation=False
         )
-        return True, "Rare Candy used", events
+        message = "Rare Candy used" if plan.count == 1 else f"Rare Candy used:{plan.count}"
+        return True, message, events
     if item == "mint":
         if state.mon is None:
             return False, "No Pokemon to use a Mint on", []

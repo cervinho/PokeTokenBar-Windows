@@ -66,7 +66,7 @@ from .pokemon import (
     PokeAPIClient,
     egg_price,
 )
-from .state import GameState, companion_progress_percent, owned_representative_options
+from .state import GameState, companion_progress_percent, owned_representative_options, plan_rare_candy_use
 from .usage import PROVIDER_LABELS, scan_month_history
 from .updates import UpdateState
 from .version import build_identity
@@ -155,6 +155,7 @@ class QmlViewModel(QObject):
     exportRequested = Signal()
     importRequested = Signal()
     useItemRequested = Signal(str)
+    useRareCandyRequested = Signal(int)
     buyItemRequested = Signal(str)
     buyEggRequested = Signal(object)
     windowMinimizeRequested = Signal()
@@ -1382,6 +1383,50 @@ class QmlViewModel(QObject):
     def useItem(self, key: str) -> None:
         self.useItemRequested.emit(key)
 
+    @Slot(result="QVariantMap")
+    def candyOptions(self) -> dict[str, Any]:
+        plan = plan_rare_candy_use(self.state, 1)
+        mon = self.state.mon
+        if plan is None or mon is None:
+            return {}
+        return {
+            "maxCount": plan.max_count,
+            "nextCount": plan.next_count,
+            "completionCount": plan.completion_count,
+            "name": self.api.localized_name(mon.current_id, self._language()),
+            "progress": f"{compact_tokens(mon.used_at_stage)} / {compact_tokens(mon.stage_threshold)}",
+            "available": self.state.inventory.get("rare_candy", 0),
+        }
+
+    @Slot(int, result="QVariantMap")
+    def candyPreview(self, count: int) -> dict[str, Any]:
+        plan = plan_rare_candy_use(self.state, count)
+        if plan is None or self.state.mon is None:
+            return {}
+        if plan.graduated:
+            outcome = self._tr("candy_preview_completion")
+        elif plan.result_id != self.state.mon.current_id:
+            outcome = self._tr(
+                "candy_preview_evolution",
+                name=self.api.localized_name(plan.result_id, self._language()),
+            )
+        else:
+            outcome = self._tr("candy_preview_progress")
+        return {
+            "count": plan.count,
+            "amount": compact_tokens(plan.count * RARE_CANDY_XP),
+            "outcome": outcome,
+            "discarded": (
+                self._tr("candy_discarded_xp", amount=compact_tokens(plan.discarded_xp))
+                if plan.discarded_xp else ""
+            ),
+        }
+
+    @Slot(int)
+    def useRareCandy(self, count: int) -> None:
+        if count > 0:
+            self.useRareCandyRequested.emit(count)
+
     @Slot(str, str)
     def buy(self, kind: str, key: str) -> None:
         if kind == "egg":
@@ -1417,6 +1462,7 @@ class QmlMainWindow(QMainWindow):
     export_requested = Signal()
     import_requested = Signal()
     use_item_requested = Signal(str)
+    use_rare_candy_requested = Signal(int)
     buy_item_requested = Signal(str)
     buy_egg_requested = Signal(object)
 
@@ -1453,6 +1499,7 @@ class QmlMainWindow(QMainWindow):
         self.view_model.exportRequested.connect(self.export_requested)
         self.view_model.importRequested.connect(self.import_requested)
         self.view_model.useItemRequested.connect(self.use_item_requested)
+        self.view_model.useRareCandyRequested.connect(self.use_rare_candy_requested)
         self.view_model.buyItemRequested.connect(self.buy_item_requested)
         self.view_model.buyEggRequested.connect(self.buy_egg_requested)
         self.view_model.windowMinimizeRequested.connect(self.showMinimized)

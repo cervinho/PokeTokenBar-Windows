@@ -203,6 +203,163 @@ Rectangle {
         onConfirmed: appModel.useItem(itemKind)
     }
 
+    Popup {
+        id: candyPopup
+        objectName: "candyPopup"
+        property var options: ({maxCount: 0})
+        property int selectedCount: 1
+        readonly property var preview: appModel.candyPreview(selectedCount)
+        function confirm() {
+            const current = appModel.candyOptions()
+            if (!current.maxCount) return
+            options = current
+            selectedCount = 1
+            open()
+        }
+        parent: Overlay.overlay
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        width: Math.min(500, root.width - 32)
+        height: Math.min(root.height - 32, Math.max(360, contentItem.implicitHeight + 2 * padding))
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 18
+        Overlay.modal: Rectangle { color: "#80000000" }
+        background: Rectangle { color: root.panelColor; radius: 12; border.color: root.borderColor; border.width: 1 }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text { Layout.fillWidth: true; text: appModel.strings.candy_modal_title; color: root.textColor; font.pixelSize: 19; font.weight: Font.DemiBold }
+            Text {
+                Layout.fillWidth: true
+                text: root.format(appModel.strings.candy_modal_subtitle, {
+                    name: candyPopup.options.name || "", progress: candyPopup.options.progress || "",
+                    available: candyPopup.options.available || 0
+                })
+                color: root.mutedColor
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+            Item { Layout.preferredHeight: 2 }
+            Text { text: appModel.strings.candy_quantity; color: root.mutedColor; font.pixelSize: 11; font.weight: Font.DemiBold }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 58
+                radius: 8
+                color: root.panelAltColor
+                border.color: root.borderColor
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    AppButton {
+                        text: "−"
+                        accessibleName: appModel.strings.candy_quantity + " −"
+                        enabled: candyPopup.selectedCount > 1
+                        implicitWidth: 48
+                        onClicked: candyPopup.selectedCount--
+                    }
+                    Text {
+                        objectName: "candySelectedCount"
+                        Layout.fillWidth: true
+                        text: String(candyPopup.selectedCount)
+                        color: root.textColor
+                        font.pixelSize: 28
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    AppButton {
+                        objectName: "candyIncrementButton"
+                        text: "+"
+                        accessibleName: appModel.strings.candy_quantity + " +"
+                        enabled: candyPopup.selectedCount < candyPopup.options.maxCount
+                        implicitWidth: 48
+                        onClicked: candyPopup.selectedCount++
+                    }
+                }
+            }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.borderColor }
+            RowLayout {
+                visible: candyPopup.options.nextCount > 0
+                Layout.fillWidth: true
+                Text { text: appModel.strings.candy_until_next; color: root.mutedColor; font.pixelSize: 13; Layout.fillWidth: true }
+                Button {
+                    objectName: "candyNextQuick"
+                    text: root.format(appModel.strings.candy_choose_count, {count: candyPopup.options.nextCount || 0})
+                    enabled: candyPopup.options.nextCount <= candyPopup.options.maxCount
+                    implicitHeight: 30
+                    activeFocusOnTab: true
+                    Accessible.name: appModel.strings.candy_until_next + ": " + text
+                    Accessible.role: Accessible.Button
+                    FocusFrame { }
+                    contentItem: Text { text: parent.text; color: parent.enabled ? root.accentColor : root.mutedColor; font.pixelSize: 13; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
+                    background: Item { }
+                    onClicked: candyPopup.selectedCount = candyPopup.options.nextCount
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Text { text: appModel.strings.candy_until_finish; color: root.mutedColor; font.pixelSize: 13; Layout.fillWidth: true }
+                Button {
+                    objectName: "candyFinishQuick"
+                    text: root.format(appModel.strings.candy_choose_count, {count: candyPopup.options.completionCount || 0})
+                    enabled: candyPopup.options.completionCount <= candyPopup.options.maxCount
+                    implicitHeight: 30
+                    activeFocusOnTab: true
+                    Accessible.name: appModel.strings.candy_until_finish + ": " + text
+                    Accessible.role: Accessible.Button
+                    FocusFrame { }
+                    contentItem: Text { text: parent.text; color: parent.enabled ? root.accentColor : root.mutedColor; font.pixelSize: 13; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
+                    background: Item { }
+                    onClicked: candyPopup.selectedCount = candyPopup.options.completionCount
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: candyPopup.preview.discarded ? 67 : 51
+                radius: 8
+                color: root.accentSurface
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 2
+                    Text { text: appModel.strings.candy_result_label; color: root.mutedColor; font.pixelSize: 10; font.weight: Font.DemiBold }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "+" + (candyPopup.preview.amount || "0") + " EXP  →  " + (candyPopup.preview.outcome || "")
+                        color: root.textColor
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        visible: !!candyPopup.preview.discarded
+                        Layout.fillWidth: true
+                        text: candyPopup.preview.discarded || ""
+                        color: root.warningColor
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+            Item { Layout.fillHeight: true; Layout.preferredHeight: 2 }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+                AppButton { text: appModel.strings.cancel; onClicked: candyPopup.close() }
+                AppButton {
+                    objectName: "candyConfirmButton"
+                    text: root.format(appModel.strings.candy_confirm_count, {count: candyPopup.selectedCount})
+                    highlighted: true
+                    onClicked: {
+                        const count = candyPopup.selectedCount
+                        candyPopup.close()
+                        appModel.useRareCandy(count)
+                    }
+                }
+            }
+        }
+    }
+
     ActionPopup {
         id: purchasePopup
         objectName: "purchasePopup"
@@ -595,7 +752,10 @@ Rectangle {
                     implicitHeight: 34
                     leftPadding: 10
                     rightPadding: 10
-                    onClicked: useItemPopup.confirm(bagCard.itemKind)
+                    onClicked: {
+                        if (bagCard.itemKind === "rare_candy") candyPopup.confirm()
+                        else useItemPopup.confirm(bagCard.itemKind)
+                    }
                 }
             }
         }
