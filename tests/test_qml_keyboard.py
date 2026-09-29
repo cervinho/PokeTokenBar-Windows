@@ -609,6 +609,38 @@ class QmlKeyboardTests(unittest.TestCase):
         self.activate("Show shiny Pokemon 1")
         self.assertTrue(self.window.view_model.dexEntries[0]["showShiny"])
 
+    def test_shiny_filter_combines_with_rarity_without_changing_it(self):
+        self.root.setProperty("currentPage", 1)
+        QTest.qWait(20)
+        self.assertEqual(self.window.view_model.dexShinyCount, 3)
+        self.activate("Show species with a caught shiny appearance")
+        self.assertTrue(self.window.view_model.dexShinyOnly)
+        self.assertEqual([row["speciesId"] for row in self.window.view_model.dexBrowseEntries], [1, 2, 3])
+        self.assertTrue(all(row["showShiny"] for row in self.window.view_model.dexBrowseEntries))
+        self.activate("Filter by Common")
+        self.assertEqual(self.window.view_model.dexFilter, "common")
+        self.assertTrue(self.window.view_model.dexShinyOnly)
+        self.activate("Show species with a caught shiny appearance")
+        self.assertFalse(self.window.view_model.dexShinyOnly)
+        self.assertEqual(self.window.view_model.dexFilter, "common")
+
+    def test_shiny_filter_stays_below_wrapped_rarity_chips(self):
+        rarities = ("common", "uncommon", "rare", "legendary")
+        self.state.language = "gl"
+        for index, catch in enumerate(self.state.catches):
+            catch.rarity = rarities[index % len(rarities)]
+        self.window.view_model.set_state(self.state)
+        self.window.resize(420, 640)
+        self.root.setProperty("currentPage", 1)
+        QTest.qWait(80)
+        self.window.grab()
+        filter_row = self.root.findChild(QObject, "dexFilterRow")
+        shiny_chip = self.root.findChild(QObject, "shinyFilterChip")
+        rarity_bottom = filter_row.mapToItem(self.root, 0, filter_row.height()).y()
+        shiny_top = shiny_chip.mapToItem(self.root, 0, 0).y()
+        self.assertGreater(filter_row.height(), 28)
+        self.assertGreaterEqual(shiny_top, rarity_bottom)
+
     def test_back_to_pokedex_keeps_species_after_detail_resize(self):
         self.root.setProperty("currentPage", 1)
         self.window.resize(820, 1000)

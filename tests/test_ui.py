@@ -606,6 +606,17 @@ class UITests(unittest.TestCase):
         model.setDexFilter("rare")
         self.assertEqual(model.dexPageCount, 1)
         self.assertEqual(len(model.dexEntries), 2)
+        self.assertEqual(model.dexShinyCount, 1)
+        model.setDexShinyOnly(True)
+        self.assertTrue(model.dexShinyOnly)
+        self.assertEqual([row["speciesId"] for row in model.dexEntries], [25])
+        self.assertTrue(model.dexEntries[0]["showShiny"])
+        model.setDexFilter("all")
+        self.assertTrue(model.dexShinyOnly)
+        self.assertEqual([row["speciesId"] for row in model.dexEntries], [25])
+        model.setDexShinyOnly(False)
+        model.setDexFilter("rare")
+        self.assertEqual(len(model.dexEntries), 2)
         shiny = next(row for row in model.dexEntries if row["speciesId"] == 25)
         self.assertTrue(shiny["showShiny"])
 
@@ -652,9 +663,21 @@ class UITests(unittest.TestCase):
         )
         model = QmlViewModel(state, self.settings, FakeUIAPI())
         self.assertEqual([row["statusLabel"] for row in model.catches],
-                         ["EN CRIANZA", "LIBERADO", "COMPLETADO"])
+                         ["EN CRIANZA", "LIBERADO", ""])
         self.assertIn("faltan", model.catches[0]["description"])
         self.assertEqual(model.catches[1]["description"], "Liberado antes de completar a crianza")
+
+    def test_repeated_catches_retain_individual_release_status_and_dex_progress(self):
+        completed = CatchRecord(405, 403, [403, 404, 405], "common", False, "Hardy", "2026-09-01")
+        released_final = CatchRecord(405, 403, [403, 404, 405], "common", True, "Hardy", "2026-09-02", "2026-09-02")
+        released_first = CatchRecord(403, 403, [403], "common", False, "Hardy", "2026-09-03", "2026-09-03")
+        state = GameState(catches=[completed, released_final, released_first], language="gl")
+        model = QmlViewModel(state, self.settings, FakeUIAPI())
+        self.assertEqual([row["statusLabel"] for row in model.catches], ["LIBERADO", "LIBERADO", ""])
+        self.assertEqual([row["number"] for row in model.catches], ["#403", "#405", "#405"])
+        self.assertEqual([row["speciesId"] for row in model.dexBrowseEntries], [403, 404, 405])
+        self.assertTrue(model.dexBrowseEntries[-1]["hasShiny"])
+        self.assertTrue(model.dexBrowseEntries[-1]["hasNormal"])
 
     def test_candy_modal_options_respect_stock_and_localized_preview(self):
         state = GameState(

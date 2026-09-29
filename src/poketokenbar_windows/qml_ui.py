@@ -183,6 +183,7 @@ class QmlViewModel(QObject):
         self._pending_previous = False
         self._snapshot = None
         self._dex_filter = "all"
+        self._dex_shiny_only = False
         self._dex_shiny_by_species: dict[int, bool] = {}
         language = normalize_language(state.language)
         identity = build_identity()
@@ -232,6 +233,8 @@ class QmlViewModel(QObject):
             "dexPage": 1,
             "dexPageCount": 1,
             "dexFilter": "all",
+            "dexShinyOnly": False,
+            "dexShinyCount": 0,
             "catches": [],
             "shopItems": [],
             "rareCandyCount": 0,
@@ -400,6 +403,12 @@ class QmlViewModel(QObject):
     )
     dexFilter = Property(
         str, lambda self: self._values["dexFilter"], notify=dataChanged
+    )
+    dexShinyOnly = Property(
+        bool, lambda self: self._values["dexShinyOnly"], notify=dataChanged
+    )
+    dexShinyCount = Property(
+        int, lambda self: self._values["dexShinyCount"], notify=dataChanged
     )
     catches = Property(
         "QVariantList", lambda self: self._values["catches"], notify=dataChanged
@@ -753,10 +762,15 @@ class QmlViewModel(QObject):
         valid_filters = {item["key"] for item in filters}
         if self._dex_filter not in valid_filters:
             self._dex_filter = "all"
-        filtered = (
+        rarity_rows = (
             all_rows
             if self._dex_filter == "all"
             else [row for row in all_rows if row["rarity"] == self._dex_filter]
+        )
+        shiny_count = sum(bool(row["hasShiny"]) for row in rarity_rows)
+        filtered = (
+            [row for row in rarity_rows if row["hasShiny"]]
+            if self._dex_shiny_only else rarity_rows
         )
         self._dex_filtered_rows = filtered
         self._dex_page_starts = self._pokedex_page_starts(
@@ -778,7 +792,11 @@ class QmlViewModel(QObject):
             if counts[rarity]
         )
         summary = self._tr("species_count", count=len(all_rows))
-        if rarity_summary:
+        if self._dex_shiny_only:
+            summary = self._tr("shiny_species_count", count=len(filtered))
+            if self._dex_filter != "all":
+                summary += f" · {self._tr(self._dex_filter)}"
+        elif rarity_summary:
             summary += f" · {rarity_summary}"
         self._values.update(
             dexEntries=filtered[start:end],
@@ -788,6 +806,8 @@ class QmlViewModel(QObject):
             dexPage=self._dex_page + 1,
             dexPageCount=page_count,
             dexFilter=self._dex_filter,
+            dexShinyOnly=self._dex_shiny_only,
+            dexShinyCount=shiny_count,
         )
 
     def _catch_rows(self) -> list[dict[str, Any]]:
@@ -844,9 +864,8 @@ class QmlViewModel(QObject):
                     "shiny": bool(catch.is_shiny),
                     "current": is_current,
                     "released": is_released,
-                    "statusLabel": self._tr(
-                        "raising" if is_current else ("catch_released" if is_released else "catch_graduated")
-                    ),
+                    "statusLabel": self._tr("raising" if is_current else "catch_released")
+                    if (is_current or is_released) else "",
                     "description": description,
                     "stages": stages,
                     "sprite": _file_url(
@@ -1289,6 +1308,21 @@ class QmlViewModel(QObject):
     @Slot(str)
     def setDexFilter(self, value: str) -> None:
         self._dex_filter = str(value)
+        self._dex_page = 0
+        self._refresh_dex_rows()
+        self.dataChanged.emit()
+
+    @Slot(bool)
+    def setDexShinyOnly(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if self._dex_shiny_only == enabled:
+            return
+        self._dex_shiny_only = enabled
+        if enabled:
+            # Opening the shiny view shows every owned shiny appearance first.
+            for row in self._all_dex_rows():
+                if row["hasShiny"]:
+                    self._dex_shiny_by_species[row["speciesId"]] = True
         self._dex_page = 0
         self._refresh_dex_rows()
         self.dataChanged.emit()

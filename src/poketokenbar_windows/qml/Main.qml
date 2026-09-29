@@ -1257,6 +1257,61 @@ Rectangle {
         }
     }
 
+    component ShinyFilterChip: Button {
+        id: shinyChip
+        objectName: "shinyFilterChip"
+        checkable: true
+        checked: appModel.dexShinyOnly
+        enabled: appModel.dexShinyCount > 0 || checked
+        activeFocusOnTab: enabled
+        implicitHeight: 28
+        implicitWidth: shinyContent.implicitWidth + 18
+        Accessible.name: appModel.strings.shiny_filter_hint
+        Accessible.role: Accessible.CheckBox
+        FocusFrame { }
+        onClicked: {
+            root.returnDexIndex = -1
+            appModel.setDexShinyOnly(checked)
+        }
+        contentItem: RowLayout {
+            id: shinyContent
+            spacing: 5
+            Text { text: "✨"; color: root.warningColor; font.pixelSize: 14 }
+            Text {
+                text: appModel.strings.shiny_filter
+                color: shinyChip.enabled ? root.textColor : root.mutedColor
+                font.pixelSize: 11
+                font.weight: shinyChip.checked ? Font.DemiBold : Font.Normal
+            }
+            Rectangle {
+                implicitWidth: Math.max(20, shinyCount.implicitWidth + 10)
+                implicitHeight: 18
+                radius: 9
+                color: shinyChip.checked ? root.warningColor : root.panelColor
+                Text {
+                    id: shinyCount
+                    anchors.centerIn: parent
+                    text: appModel.dexShinyCount
+                    color: shinyChip.checked ? "#182231" : root.mutedColor
+                    font.pixelSize: 9
+                    font.weight: Font.DemiBold
+                }
+            }
+        }
+        background: Rectangle {
+            radius: 7
+            color: shinyChip.checked ? (root.darkMode ? "#3b3322" : "#fff1cf") : "transparent"
+            border.color: shinyChip.checked || shinyChip.visualFocus
+                ? root.warningColor : root.borderColor
+            border.width: shinyChip.checked || shinyChip.visualFocus ? 2 : 1
+        }
+        HoverHandler { id: shinyFilterHover; acceptedDevices: PointerDevice.Mouse }
+        AppToolTip {
+            requestedVisible: shinyFilterHover.hovered || shinyChip.visualFocus
+            text: appModel.strings.shiny_filter_hint
+        }
+    }
+
     component SegmentedControl: Rectangle {
         id: segment
         required property var options
@@ -1934,11 +1989,12 @@ Rectangle {
                             objectName: "dexFilterRow"
                             visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 28
+                            Layout.preferredHeight: Math.max(28, rarityFilterFlow.childrenRect.height)
                             spacing: 8
                             Flow {
+                                id: rarityFilterFlow
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 28
+                                Layout.preferredHeight: Math.max(28, childrenRect.height)
                                 spacing: 5
                                 Repeater {
                                     model: appModel.dexFilters
@@ -1959,12 +2015,21 @@ Rectangle {
                             }
                         }
                     }
-                    Text {
+                    RowLayout {
                         visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
+                        Layout.fillWidth: true
                         Layout.leftMargin: 14
-                        text: appModel.dexSummary
-                        color: root.mutedColor
-                        font.pixelSize: 11
+                        Layout.rightMargin: 14
+                        spacing: 8
+                        ShinyFilterChip { }
+                        Text {
+                            Layout.fillWidth: true
+                            text: appModel.dexSummary
+                            color: root.mutedColor
+                            font.pixelSize: 11
+                            horizontalAlignment: Text.AlignRight
+                            elide: Text.ElideRight
+                        }
                     }
                     GridLayout {
                         id: dexGrid
@@ -2202,12 +2267,12 @@ Rectangle {
                                         Text { text: modelData.meta; color: root.mutedColor; font.pixelSize: 10 }
                                     }
                                     Text {
-                                        objectName: "raisingBadge"
+                                        objectName: "catchStatusBadge"
                                         anchors.right: parent.right
                                         anchors.top: parent.top
+                                        visible: modelData.statusLabel !== ""
                                         text: modelData.statusLabel
-                                        color: modelData.released ? root.warningColor :
-                                               (modelData.current ? root.accentColor : root.successColor)
+                                        color: modelData.current ? root.accentColor : root.mutedColor
                                         font.pixelSize: 10
                                         font.weight: Font.Medium
                                     }
