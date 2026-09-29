@@ -445,10 +445,17 @@ def apply_usage(
             remaining -= take
             if state.egg_usage < EGG_HATCH_THRESHOLD:
                 break
-            hatch = api.hatch(minimum_rarity=state.egg_tier, shiny_charm=state.shiny_charm_active)
+            completed_finals = {
+                (catch.base_id, (catch.path_ids or [catch.species_id])[-1])
+                for catch in state.catches if catch.released_at is None
+            }
+            hatch = api.hatch(
+                minimum_rarity=state.egg_tier,
+                shiny_charm=state.shiny_charm_active,
+                completed_finals=completed_finals,
+            )
             has_growth_boost = any(
-                catch.base_id == hatch.base_id and catch.released_at is None
-                for catch in state.catches
+                base_id == hatch.base_id for base_id, _ in completed_finals
             )
             state.mon = MonState(
                 base_id=hatch.base_id,

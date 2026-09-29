@@ -81,7 +81,7 @@ from poketokenbar_windows.windows import (
 
 
 class FakeAPI:
-    def hatch(self, minimum_rarity=None, shiny_charm=False):
+    def hatch(self, minimum_rarity=None, shiny_charm=False, completed_finals=None):
         return HatchResult(
             base_id=1,
             path_ids=[1, 2, 3],
@@ -695,6 +695,42 @@ class CodexLimitsTests(unittest.TestCase):
         self.assertTrue(proc.terminated)
 
 
+class HatchCollectionTests(unittest.TestCase):
+    @staticmethod
+    def node(species_id, children=()):
+        return {
+            "species": {"url": f"https://pokeapi.co/api/v2/pokemon-species/{species_id}/"},
+            "evolves_to": list(children),
+        }
+
+    def test_unfinished_evolution_branch_is_preferred(self):
+        with tempfile.TemporaryDirectory() as folder:
+            client = PokeAPIClient(Path(folder))
+            root = self.node(1, [self.node(2), self.node(3)])
+            with patch("poketokenbar_windows.pokemon.random.choice", side_effect=lambda choices: choices[0]):
+                self.assertEqual(client._random_path(root, completed_finals={(1, 2)}), [1, 3])
+                self.assertEqual(client._random_path(root, completed_finals={(1, 2), (1, 3)}), [1, 2])
+
+    def test_completed_base_has_half_its_capture_weight(self):
+        species = {
+            "capture_rate": 45,
+            "evolves_from_species": None,
+            "evolution_chain": {"url": "https://pokeapi.co/api/v2/evolution-chain/1/"},
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            client = PokeAPIClient(Path(folder))
+            with (
+                patch.object(client, "species", return_value=species) as get_species,
+                patch.object(client, "evolution_chain", return_value={"chain": self.node(1)}),
+                patch("poketokenbar_windows.pokemon.random.randint", side_effect=[1, 30, 1, 21]),
+                patch("poketokenbar_windows.pokemon.random.choice", side_effect=lambda choices: choices[0]),
+                patch("poketokenbar_windows.pokemon.random.randrange", return_value=1),
+            ):
+                result = client.hatch(max_attempts=2, completed_finals={(1, 1)})
+            self.assertEqual(result.base_id, 1)
+            self.assertEqual(result.rarity, "rare")
+            self.assertEqual(get_species.call_count, 2)
+
 class PokemonAssetTests(unittest.TestCase):
     def test_item_sprite_uses_validated_runtime_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -968,6 +1004,22 @@ class MonthTrendTests(unittest.TestCase):
 
 
 class RepeatGrowthTests(unittest.TestCase):
+    def test_hatch_receives_only_completed_final_lines(self):
+        class TrackingAPI(FakeAPI):
+            completed_finals = None
+
+            def hatch(self, minimum_rarity=None, shiny_charm=False, completed_finals=None):
+                self.completed_finals = completed_finals
+                return super().hatch(minimum_rarity, shiny_charm, completed_finals)
+
+        state = GameState(catches=[
+            CatchRecord(3, 1, [1, 2, 3], "common", False, "Hardy", "2026-09-01"),
+            CatchRecord(6, 4, [4, 5, 6], "common", False, "Hardy", "2026-09-01", released_at="2026-09-02"),
+        ])
+        api = TrackingAPI()
+        apply_usage(state, EGG_HATCH_THRESHOLD, api)
+        self.assertEqual(api.completed_finals, {(1, 3)})
+
     def test_repeat_base_species_gets_persistent_half_threshold(self):
         state = GameState(catches=[CatchRecord(3, 1, [1, 2, 3], "common", False, "Hardy", "2026-09-01")])
         apply_usage(state, EGG_HATCH_THRESHOLD, FakeAPI())
