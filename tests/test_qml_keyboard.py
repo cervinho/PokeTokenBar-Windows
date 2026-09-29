@@ -542,9 +542,13 @@ class QmlKeyboardTests(unittest.TestCase):
         QTest.qWait(20)
         filter_row = self.root.findChild(QObject, "dexFilterRow")
         page_position = self.root.findChild(QObject, "dexPagePosition")
-        page_point = page_position.mapToItem(filter_row, 0, 0)
-        self.assertGreaterEqual(page_point.y(), -1)
-        self.assertLessEqual(page_point.y() + page_position.height(), filter_row.height() + 1)
+        filter_bottom = filter_row.mapToItem(self.root, 0, filter_row.height()).y()
+        page_top = page_position.mapToItem(self.root, 0, 0).y()
+        self.assertGreaterEqual(page_top, filter_bottom - 1)
+        self.assertLessEqual(
+            page_top + page_position.height(),
+            self.root.findChild(QObject, "dexGrid").mapToItem(self.root, 0, 0).y() + 1,
+        )
 
     def test_companion_uses_animation_and_reveal_pokeball(self):
         animation = self.root.findChild(QObject, "companionAnimation")
@@ -624,7 +628,24 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertFalse(self.window.view_model.dexShinyOnly)
         self.assertEqual(self.window.view_model.dexFilter, "common")
 
-    def test_shiny_filter_stays_below_wrapped_rarity_chips(self):
+    def test_shiny_filter_can_be_cleared_after_switching_to_rarity_with_no_shinies(self):
+        for catch in self.state.catches:
+            if 5 <= catch.base_id <= 10:
+                catch.rarity = "rare"
+        self.window.view_model.set_state(self.state)
+        self.root.setProperty("currentPage", 1)
+        self.activate("Filter by Common")
+        self.activate("Show species with a caught shiny appearance")
+        self.assertEqual(len(self.window.view_model.dexBrowseEntries), 3)
+        self.activate("Filter by Rare")
+        self.assertEqual(self.window.view_model.dexShinyCount, 0)
+        self.assertEqual(self.window.view_model.dexBrowseEntries, [])
+        self.activate("Show species with a caught shiny appearance")
+        self.assertFalse(self.window.view_model.dexShinyOnly)
+        self.assertEqual(self.window.view_model.dexFilter, "rare")
+        self.assertEqual(len(self.window.view_model.dexBrowseEntries), 6)
+
+    def test_all_rarity_chips_and_shiny_fit_one_line_at_minimum_width(self):
         rarities = ("common", "uncommon", "rare", "legendary")
         self.state.language = "gl"
         for index, catch in enumerate(self.state.catches):
@@ -636,10 +657,13 @@ class QmlKeyboardTests(unittest.TestCase):
         self.window.grab()
         filter_row = self.root.findChild(QObject, "dexFilterRow")
         shiny_chip = self.root.findChild(QObject, "shinyFilterChip")
-        rarity_bottom = filter_row.mapToItem(self.root, 0, filter_row.height()).y()
-        shiny_top = shiny_chip.mapToItem(self.root, 0, 0).y()
-        self.assertGreater(filter_row.height(), 28)
-        self.assertGreaterEqual(shiny_top, rarity_bottom)
+        shiny_position = shiny_chip.mapToItem(filter_row, 0, 0)
+        self.assertEqual(len(self.window.view_model.dexFilters), 5)
+        self.assertLessEqual(filter_row.height(), 28)
+        self.assertGreater(shiny_position.x(), 0)
+        self.assertGreaterEqual(shiny_position.y(), 0)
+        self.assertLessEqual(shiny_position.y() + shiny_chip.height(), filter_row.height())
+        self.assertLessEqual(shiny_position.x() + shiny_chip.width(), filter_row.width())
 
     def test_back_to_pokedex_keeps_species_after_detail_resize(self):
         self.root.setProperty("currentPage", 1)

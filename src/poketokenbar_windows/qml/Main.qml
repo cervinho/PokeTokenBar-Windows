@@ -1218,7 +1218,7 @@ Rectangle {
         checked: appModel.dexFilter === filterKey
         activeFocusOnTab: true
         implicitHeight: 28
-        implicitWidth: chipContent.implicitWidth + 18
+        implicitWidth: chipContent.implicitWidth + 14
         Accessible.name: root.format(appModel.strings.filter_by, {label: label})
         Accessible.role: Accessible.RadioButton
         onClicked: {
@@ -1262,10 +1262,10 @@ Rectangle {
         objectName: "shinyFilterChip"
         checkable: true
         checked: appModel.dexShinyOnly
-        enabled: appModel.dexShinyCount > 0 || checked
+        enabled: appModel.dexShinyCount > 0 || appModel.dexShinyOnly
         activeFocusOnTab: enabled
         implicitHeight: 28
-        implicitWidth: shinyContent.implicitWidth + 18
+        implicitWidth: shinyContent.implicitWidth + 10
         Accessible.name: appModel.strings.shiny_filter_hint
         Accessible.role: Accessible.CheckBox
         FocusFrame { }
@@ -1275,14 +1275,8 @@ Rectangle {
         }
         contentItem: RowLayout {
             id: shinyContent
-            spacing: 5
+            spacing: 4
             Text { text: "✨"; color: root.warningColor; font.pixelSize: 14 }
-            Text {
-                text: appModel.strings.shiny_filter
-                color: shinyChip.enabled ? root.textColor : root.mutedColor
-                font.pixelSize: 11
-                font.weight: shinyChip.checked ? Font.DemiBold : Font.Normal
-            }
             Rectangle {
                 implicitWidth: Math.max(20, shinyCount.implicitWidth + 10)
                 implicitHeight: 18
@@ -1990,12 +1984,12 @@ Rectangle {
                             visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
                             Layout.fillWidth: true
                             Layout.preferredHeight: Math.max(28, rarityFilterFlow.childrenRect.height)
-                            spacing: 8
+                            spacing: 5
                             Flow {
                                 id: rarityFilterFlow
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Math.max(28, childrenRect.height)
-                                spacing: 5
+                                spacing: 4
                                 Repeater {
                                     model: appModel.dexFilters
                                     FilterChip {
@@ -2006,29 +2000,16 @@ Rectangle {
                                     }
                                 }
                             }
-                            Text {
-                                objectName: "dexPagePosition"
-                                text: root.format(appModel.strings.page, {page: appModel.dexPage, count: appModel.dexPageCount})
-                                color: root.mutedColor
-                                font.pixelSize: 11
-                                Layout.alignment: Qt.AlignVCenter
-                            }
+                            ShinyFilterChip { }
                         }
-                    }
-                    RowLayout {
-                        visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 14
-                        Layout.rightMargin: 14
-                        spacing: 8
-                        ShinyFilterChip { }
                         Text {
+                            objectName: "dexPagePosition"
+                            visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
                             Layout.fillWidth: true
-                            text: appModel.dexSummary
+                            text: root.format(appModel.strings.page, {page: appModel.dexPage, count: appModel.dexPageCount})
                             color: root.mutedColor
                             font.pixelSize: 11
                             horizontalAlignment: Text.AlignRight
-                            elide: Text.ElideRight
                         }
                     }
                     GridLayout {
