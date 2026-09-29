@@ -1218,7 +1218,9 @@ Rectangle {
         checked: appModel.dexFilter === filterKey
         activeFocusOnTab: true
         implicitHeight: 28
-        implicitWidth: chipContent.implicitWidth + 14
+        leftPadding: 7
+        rightPadding: 7
+        implicitWidth: chipContent.implicitWidth + leftPadding + rightPadding
         Accessible.name: root.format(appModel.strings.filter_by, {label: label})
         Accessible.role: Accessible.RadioButton
         onClicked: {
@@ -1265,7 +1267,9 @@ Rectangle {
         enabled: appModel.dexShinyCount > 0 || appModel.dexShinyOnly
         activeFocusOnTab: enabled
         implicitHeight: 28
-        implicitWidth: shinyContent.implicitWidth + 10
+        leftPadding: 8
+        rightPadding: 8
+        implicitWidth: shinyContent.implicitWidth + leftPadding + rightPadding
         Accessible.name: appModel.strings.shiny_filter_hint
         Accessible.role: Accessible.CheckBox
         FocusFrame { }
@@ -1275,7 +1279,7 @@ Rectangle {
         }
         contentItem: RowLayout {
             id: shinyContent
-            spacing: 4
+            spacing: 6
             Text { text: "✨"; color: root.warningColor; font.pixelSize: 14 }
             Rectangle {
                 implicitWidth: Math.max(20, shinyCount.implicitWidth + 10)
@@ -2002,15 +2006,6 @@ Rectangle {
                             }
                             ShinyFilterChip { }
                         }
-                        Text {
-                            objectName: "dexPagePosition"
-                            visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
-                            Layout.fillWidth: true
-                            text: root.format(appModel.strings.page, {page: appModel.dexPage, count: appModel.dexPageCount})
-                            color: root.mutedColor
-                            font.pixelSize: 11
-                            horizontalAlignment: Text.AlignRight
-                        }
                     }
                     GridLayout {
                         id: dexGrid
@@ -2108,9 +2103,28 @@ Rectangle {
                         Layout.fillWidth: true
                         Layout.leftMargin: 14
                         Layout.rightMargin: 14
-                        AppButton { text: appModel.strings.previous; enabled: appModel.dexPage > 1; onClicked: root.navigateDex(-1) }
-                        Item { Layout.fillWidth: true }
-                        AppButton { text: appModel.strings.next; enabled: appModel.dexPage < appModel.dexPageCount; onClicked: root.navigateDex(1) }
+                        AppButton {
+                            objectName: "dexPreviousPage"
+                            text: appModel.strings.previous
+                            enabled: appModel.dexPage > 1
+                            onClicked: root.navigateDex(-1)
+                        }
+                        Text {
+                            objectName: "dexPagePosition"
+                            Layout.fillWidth: true
+                            text: root.format(appModel.strings.page, {page: appModel.dexPage, count: appModel.dexPageCount})
+                            color: root.mutedColor
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        AppButton {
+                            objectName: "dexNextPage"
+                            text: appModel.strings.next
+                            enabled: appModel.dexPage < appModel.dexPageCount
+                            onClicked: root.navigateDex(1)
+                        }
                     }
                     Panel {
                         objectName: "dexDetailPanel"

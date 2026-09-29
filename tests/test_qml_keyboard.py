@@ -540,15 +540,21 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertIsNotNone(self.root.findChild(QObject, "collectionToolbar"))
         self.root.setProperty("currentPage", 1)
         QTest.qWait(20)
-        filter_row = self.root.findChild(QObject, "dexFilterRow")
         page_position = self.root.findChild(QObject, "dexPagePosition")
-        filter_bottom = filter_row.mapToItem(self.root, 0, filter_row.height()).y()
+        pagination = self.root.findChild(QObject, "dexPagination")
+        grid = self.root.findChild(QObject, "dexGrid")
+        previous = self.root.findChild(QObject, "dexPreviousPage")
+        next_page = self.root.findChild(QObject, "dexNextPage")
+        grid_bottom = grid.mapToItem(self.root, 0, grid.height()).y()
         page_top = page_position.mapToItem(self.root, 0, 0).y()
-        self.assertGreaterEqual(page_top, filter_bottom - 1)
-        self.assertLessEqual(
-            page_top + page_position.height(),
-            self.root.findChild(QObject, "dexGrid").mapToItem(self.root, 0, 0).y() + 1,
-        )
+        self.assertGreaterEqual(page_top, grid_bottom - 1)
+        self.assertLessEqual(page_top + page_position.height(),
+                             pagination.mapToItem(self.root, 0, pagination.height()).y() + 1)
+        previous_right = previous.mapToItem(pagination, previous.width(), 0).x()
+        next_left = next_page.mapToItem(pagination, 0, 0).x()
+        label_center = page_position.mapToItem(pagination, page_position.width() / 2, 0).x()
+        self.assertAlmostEqual(label_center, (previous_right + next_left) / 2, delta=2)
+        self.assertEqual(page_position.property("font").pixelSize(), 13)
 
     def test_companion_uses_animation_and_reveal_pokeball(self):
         animation = self.root.findChild(QObject, "companionAnimation")
@@ -664,6 +670,10 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertGreaterEqual(shiny_position.y(), 0)
         self.assertLessEqual(shiny_position.y() + shiny_chip.height(), filter_row.height())
         self.assertLessEqual(shiny_position.x() + shiny_chip.width(), filter_row.width())
+        self.assertGreaterEqual(
+            shiny_chip.property("implicitWidth") - shiny_chip.property("contentItem").property("implicitWidth"),
+            16,
+        )
 
     def test_back_to_pokedex_keeps_species_after_detail_resize(self):
         self.root.setProperty("currentPage", 1)
