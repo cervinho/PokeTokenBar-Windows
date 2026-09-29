@@ -582,6 +582,33 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertEqual(self.root.property("selectedDexIndex"), -1)
         self.assertEqual(self.window.view_model.dexPage, 2)
 
+    def test_shiny_icon_switches_only_owned_variants_without_growing_cards(self):
+        self.root.setProperty("currentPage", 1)
+        QTest.qWait(20)
+        shiny = self.window.view_model.dexEntries[0]
+        self.assertTrue(shiny["hasShiny"])
+        self.assertFalse(shiny["hasNormal"])
+        toggles = [item for item in self.controls_tree(self.root)
+                   if item.objectName() == "dexShinyToggle" and item.isVisible()]
+        self.assertEqual(len(toggles), 3)
+        self.assertFalse(next(item for item in toggles if self.name(item) == "Only shiny Pokemon 1 has been caught").isEnabled())
+
+        self.state.catches.append(CatchRecord(
+            1, 1, [1, 2, 3], "common", False, "Hardy", "2026-09-02"
+        ))
+        self.window.view_model.set_state(self.state)
+        QTest.qWait(40)
+        card_heights = [item.height() for item in self.controls_tree(self.root)
+                        if item.objectName() == "dexCard" and item.isVisible()]
+        self.assertTrue(card_heights)
+        self.assertEqual(len(set(card_heights)), 1)
+        self.activate("Show normal Pokemon 1")
+        self.assertFalse(self.window.view_model.dexEntries[0]["showShiny"])
+        self.activate("View Pokemon 1")
+        self.assertEqual(self.root.property("selectedDexIndex"), 0)
+        self.activate("Show shiny Pokemon 1")
+        self.assertTrue(self.window.view_model.dexEntries[0]["showShiny"])
+
     def test_back_to_pokedex_keeps_species_after_detail_resize(self):
         self.root.setProperty("currentPage", 1)
         self.window.resize(820, 1000)

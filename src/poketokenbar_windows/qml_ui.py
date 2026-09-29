@@ -726,7 +726,7 @@ class QmlViewModel(QObject):
             first_row = True
             while index < len(rows):
                 row = rows[index : index + columns]
-                row_height = 210 if any(item["hasShiny"] and item["hasNormal"] for item in row) else 174
+                row_height = 174
                 needed = row_height + (0 if first_row else 7)
                 if not first_row and occupied + needed > grid_height:
                     break

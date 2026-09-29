@@ -941,6 +941,50 @@ Rectangle {
         }
     }
 
+    component ShinyVariantToggle: Item {
+        id: variant
+        required property int speciesId
+        required property string speciesName
+        required property bool hasNormal
+        required property bool showShiny
+        readonly property string hint: hasNormal
+            ? root.format(showShiny ? appModel.strings.view_normal : appModel.strings.view_shiny,
+                          {name: speciesName})
+            : root.format(appModel.strings.shiny_only_caught, {name: speciesName})
+        implicitWidth: 40
+        implicitHeight: 40
+        z: 3
+        Button {
+            id: variantButton
+            objectName: "dexShinyToggle"
+            anchors.fill: parent
+            enabled: variant.hasNormal
+            activeFocusOnTab: variant.hasNormal
+            Accessible.name: variant.hint
+            Accessible.role: Accessible.Button
+            FocusFrame { }
+            contentItem: Text {
+                text: "✨"
+                font.pixelSize: 23
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 8
+                color: variant.showShiny
+                    ? (root.darkMode ? "#3b3322" : "#fff1cf") : root.panelAltColor
+                border.color: variant.showShiny ? root.warningColor : root.borderColor
+                border.width: 1
+            }
+            onClicked: appModel.toggleDexVariant(variant.speciesId)
+        }
+        HoverHandler { id: variantHover; acceptedDevices: PointerDevice.Mouse }
+        AppToolTip {
+            requestedVisible: variantHover.hovered || variantButton.visualFocus
+            text: variant.hint
+        }
+    }
+
     component WindowButton: Button {
         id: windowControl
         required property string iconKind
@@ -1939,9 +1983,10 @@ Rectangle {
                             model: appModel.dexEntries
                             Panel {
                                 id: dexCard
+                                objectName: "dexCard"
                                 required property var modelData
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: modelData.hasShiny && modelData.hasNormal ? 210 : 174
+                                Layout.preferredHeight: 174
                                 border.color: modelData.representative
                                     ? root.successColor
                                     : (dexCardButton.hovered ? root.accentColor : root.borderColor)
@@ -1968,17 +2013,30 @@ Rectangle {
                                     Image { source: modelData.sprite; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 108; Layout.preferredHeight: 108; fillMode: Image.PreserveAspectFit; smooth: false }
                                     RowLayout {
                                         Layout.fillWidth: true
-                                        Text { text: modelData.number; color: root.mutedColor; font.pixelSize: 10 }
-                                        Item { Layout.fillWidth: true }
-                                        Text { visible: modelData.showShiny; text: "✨"; font.pixelSize: 11 }
-                                    }
-                                    Text { text: modelData.name; color: root.textColor; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight; Layout.fillWidth: true }
-                                    AppButton {
-                                        Layout.fillWidth: true
-                                        visible: modelData.hasShiny && modelData.hasNormal
-                                        text: modelData.showShiny ? "Normal" : "Shiny"
-                                        accessibleName: root.format(modelData.showShiny ? appModel.strings.view_normal : appModel.strings.view_shiny, {name: modelData.name})
-                                        onClicked: appModel.toggleDexVariant(modelData.speciesId)
+                                        Layout.preferredHeight: 40
+                                        spacing: 4
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Text { text: modelData.number; color: root.mutedColor; font.pixelSize: 10 }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: modelData.name
+                                                color: root.textColor
+                                                font.pixelSize: 12
+                                                font.weight: Font.Medium
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                        ShinyVariantToggle {
+                                            visible: modelData.hasShiny
+                                            Layout.preferredWidth: 40
+                                            Layout.preferredHeight: 40
+                                            speciesId: modelData.speciesId
+                                            speciesName: modelData.name
+                                            hasNormal: modelData.hasNormal
+                                            showShiny: modelData.showShiny
+                                        }
                                     }
                                 }
                                 RepresentativeCheck {
@@ -2048,18 +2106,21 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Text {
-                                    text: (root.selectedDex.showShiny ? "✨ " : "") +
-                                          (root.selectedDex.name || "") + "  " +
+                                    text: (root.selectedDex.name || "") + "  " +
                                           (root.selectedDex.number || "")
                                     color: root.textColor
                                     font.pixelSize: 19
                                     font.weight: Font.DemiBold
                                     Layout.fillWidth: true
                                 }
-                                AppButton {
-                                    visible: !!root.selectedDex.hasShiny && !!root.selectedDex.hasNormal
-                                    text: root.selectedDex.showShiny ? "Normal" : "Shiny"
-                                    onClicked: appModel.toggleDexVariant(root.selectedDex.speciesId)
+                                ShinyVariantToggle {
+                                    visible: !!root.selectedDex.hasShiny
+                                    Layout.preferredWidth: 40
+                                    Layout.preferredHeight: 40
+                                    speciesId: root.selectedDex.speciesId || 0
+                                    speciesName: root.selectedDex.name || ""
+                                    hasNormal: !!root.selectedDex.hasNormal
+                                    showShiny: !!root.selectedDex.showShiny
                                 }
                             }
                             Text {
