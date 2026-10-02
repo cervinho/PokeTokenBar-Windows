@@ -1171,7 +1171,9 @@ class QmlViewModel(QObject):
 
     def set_refresh_enabled(self, enabled: bool) -> None:
         self._values["refreshEnabled"] = bool(enabled)
-        self._values["loading"] = not enabled and not self._values["providers"]
+        # Loading belongs to the initial render, not to the presence of usage rows.
+        if enabled:
+            self._values["loading"] = False
         self.dataChanged.emit()
 
     def set_status(self, text: str) -> None:
@@ -1523,6 +1525,13 @@ class QmlMainWindow(QMainWindow):
         self._month_history_timer.setInterval(100)
         self._month_history_timer.timeout.connect(self._poll_month_history)
         self.view_model = QmlViewModel(state, settings, api)
+        self._companion_subject = (
+            (state.mon.current_id, state.mon.is_shiny) if state.mon else (None, False)
+        )
+        self._companion_reveal_timer = QTimer(self)
+        self._companion_reveal_timer.setSingleShot(True)
+        self._companion_reveal_timer.setInterval(1200)
+        self._companion_reveal_timer.timeout.connect(lambda: self.view_model.set_reveal(False))
         self.view_model.refreshRequested.connect(self.refresh_requested)
         self.view_model.monthHistoryRequested.connect(self._load_month_history)
         self.view_model.petVisibilityChanged.connect(self.pet_visibility_changed)
@@ -1757,9 +1766,18 @@ class QmlMainWindow(QMainWindow):
 
     def set_state(self, state: GameState) -> None:
         self.view_model.set_state(state)
+        self._sync_companion_reveal()
 
     def render(self, result: Any) -> None:
         self.view_model.render(result)
+        self._sync_companion_reveal()
+
+    def _sync_companion_reveal(self) -> None:
+        mon = self.view_model.state.mon
+        subject = (mon.current_id, mon.is_shiny) if mon else (None, False)
+        if subject != self._companion_subject:
+            self._companion_subject = subject
+            self.start_companion_reveal(None, is_egg=mon is None)
 
     def sync_floating_pet_settings(
         self, *, enabled: bool | None = None, size: int | None = None
@@ -1781,9 +1799,8 @@ class QmlMainWindow(QMainWindow):
         ball_path: Path | None = None,
     ) -> None:
         del sprite_path, is_egg, ball_path
-        self.view_model.set_reveal(False)
-        QTimer.singleShot(0, lambda: self.view_model.set_reveal(True))
-        QTimer.singleShot(1200, lambda: self.view_model.set_reveal(False))
+        self.view_model.set_reveal(True)
+        self._companion_reveal_timer.start()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._geometry_timer.stop()

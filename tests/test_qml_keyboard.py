@@ -556,6 +556,77 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertAlmostEqual(label_center, (previous_right + next_left) / 2, delta=2)
         self.assertEqual(page_position.property("font").pixelSize(), 13)
 
+    def test_refresh_keeps_companion_visible_with_or_without_usage_providers(self):
+        self.window.activateWindow()
+        self.root.setProperty("currentPage", 0)
+        QTest.qWait(20)
+        animation = self.root.findChild(QObject, "companionAnimation")
+        reveal = self.root.findChild(QObject, "companionReveal")
+        requests = []
+
+        def begin_refresh():
+            requests.append("refresh")
+            self.window.refresh_button.setEnabled(False)
+            self.window.refresh_status.setText("Updating…")
+
+        self.window.view_model.refreshRequested.connect(begin_refresh)
+        for providers in ({}, {"codex": ProviderUsage("codex", today_tokens=10)}):
+            result = RefreshResult(
+                UsageSnapshot(providers=providers, scanned_at=datetime.now(timezone.utc)),
+                {}, {}, self.state, [], None, "Pokemon 2",
+            )
+            self.window.render(result)
+            source = animation.property("source")
+            changes = QSignalSpy(self.window.view_model.revealChanged)
+            for trigger in ("automatic", "button", "F5"):
+                with self.subTest(providers=bool(providers), trigger=trigger):
+                    self.window.render(result)
+                    count = len(requests)
+                    if trigger == "automatic":
+                        begin_refresh()
+                    elif trigger == "button":
+                        self.activate("Refresh")
+                    else:
+                        self.key(Qt.Key_F5)
+                    self.assertEqual(len(requests), count + 1)
+                    self.assertFalse(self.window.view_model.refreshEnabled)
+                    self.assertTrue(animation.isVisible())
+                    self.assertTrue(animation.property("playing"))
+                    self.assertFalse(reveal.isVisible())
+                    self.assertEqual(animation.property("source"), source)
+                    self.window.render(result)
+                    self.assertTrue(animation.isVisible())
+                    self.assertFalse(reveal.isVisible())
+                    self.assertEqual(changes.count(), 0)
+
+    def test_companion_reveal_follows_visual_changes_and_survives_unchanged_refresh(self):
+        self.root.setProperty("currentPage", 0)
+        self.state.mon.used_at_stage += 1
+        self.state.mon.nature = "Jolly"
+        self.window.set_state(self.state)
+        self.assertFalse(self.window.view_model.revealActive)
+        self.state.mon.stage_index += 1
+        self.window.render(RefreshResult(UsageSnapshot(), {}, {}, self.state, ["evolved:3"], None, "Pokemon 3"))
+        QTest.qWait(10)
+        self.assertTrue(self.window.view_model.revealActive)
+        changes = QSignalSpy(self.window.view_model.revealChanged)
+        self.window.render(RefreshResult(UsageSnapshot(), {}, {}, self.state, [], None, "Pokemon 3"))
+        self.assertEqual(changes.count(), 0)
+        QTest.qWait(1250)
+        self.assertFalse(self.window.view_model.revealActive)
+        self.assertTrue(self.root.findChild(QObject, "companionAnimation").isVisible())
+        for subject in (None, MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy"),
+                        MonState(1, [1, 2, 3], 0, 0, "common", True, "Hardy")):
+            self.state.mon = subject
+            self.window.set_state(self.state)
+            QTest.qWait(10)
+            self.assertTrue(self.window.view_model.revealActive)
+            QTest.qWait(1250)
+            self.assertFalse(self.window.view_model.revealActive)
+        self.state.language = "gl"
+        self.window.set_state(self.state)
+        self.assertFalse(self.window.view_model.revealActive)
+
     def test_companion_uses_animation_and_reveal_pokeball(self):
         animation = self.root.findChild(QObject, "companionAnimation")
         reveal = self.root.findChild(QObject, "companionReveal")
