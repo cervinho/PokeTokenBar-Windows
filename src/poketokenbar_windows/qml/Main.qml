@@ -12,16 +12,35 @@ Rectangle {
     border.width: 1
 
     property int currentPage: 0
+    property var activeTooltip: null
+    HoverHandler { id: appPointer; acceptedDevices: PointerDevice.Mouse }
+    Connections {
+        target: appModel
+        function onDataChanged() {
+            if (!appModel.windowActive) root.activeTooltip = null
+        }
+    }
+    onCurrentPageChanged: Qt.callLater(root.syncDexViewport)
     property int trendHoveredIndex: -1
     property string collectionMode: "dex"
     property int selectedDexIndex: -1
+    property int returnDexIndex: -1
     readonly property var selectedDex: selectedDexIndex >= 0 && selectedDexIndex < appModel.dexBrowseEntries.length
         ? appModel.dexBrowseEntries[selectedDexIndex] : ({})
-    onCollectionModeChanged: if (collectionMode !== "dex") selectedDexIndex = -1
+    onCollectionModeChanged: {
+        if (collectionMode !== "dex") {
+            selectedDexIndex = -1
+            returnDexIndex = -1
+        }
+        collectionPage.contentItem.contentY = 0
+        Qt.callLater(root.syncDexViewport)
+    }
+    onSelectedDexIndexChanged: if (selectedDexIndex < 0) Qt.callLater(root.syncDexViewport)
 
     function openDex(speciesId) {
         for (let index = 0; index < appModel.dexBrowseEntries.length; ++index) {
             if (appModel.dexBrowseEntries[index].speciesId === speciesId) {
+                returnDexIndex = -1
                 selectedDexIndex = index
                 collectionPage.contentItem.contentY = 0
                 return
@@ -30,11 +49,44 @@ Rectangle {
     }
 
     function closeDex() {
-        if (selectedDexIndex >= 0)
-            appModel.moveDexPage(Math.floor(selectedDexIndex / 24) + 1 - appModel.dexPage)
+        if (selectedDexIndex < 0)
+            return
+        returnDexIndex = selectedDexIndex
+        appModel.showDexIndex(returnDexIndex)
         selectedDexIndex = -1
         collectionPage.contentItem.contentY = 0
+        Qt.callLater(root.syncDexViewport)
     }
+
+    function syncDexViewport() {
+        if (root.currentPage !== 1 || root.collectionMode !== "dex"
+                || root.selectedDexIndex >= 0 || collectionPage.availableHeight <= 0
+                || dexGrid.width <= 0 || dexPagination.height <= 0)
+            return
+        const height = Math.floor(
+            collectionPage.availableHeight - dexGrid.y
+            - dexPagination.height - collectionContent.spacing - 4
+        )
+        appModel.setDexViewport(dexGrid.columns, height)
+        if (returnDexIndex >= 0)
+            appModel.showDexIndex(returnDexIndex)
+    }
+
+    function navigateDex(direction) {
+        if (root.currentPage !== 1 || root.collectionMode !== "dex")
+            return
+        if (root.selectedDexIndex >= 0) {
+            const next = root.selectedDexIndex + direction
+            if (next < 0 || next >= appModel.dexBrowseEntries.length)
+                return
+            root.selectedDexIndex = next
+        } else {
+            returnDexIndex = -1
+            appModel.moveDexPage(direction)
+        }
+        collectionPage.contentItem.contentY = 0
+    }
+
     readonly property bool darkMode: appModel.darkMode
     property color textColor: appModel.darkMode ? "#edf2ff" : "#172033"
     property color mutedColor: appModel.darkMode ? "#b9c7db" : "#5b6a80"
@@ -73,16 +125,19 @@ Rectangle {
         function onActiveFocusItemChanged() { Qt.callLater(root.revealKeyboardFocus) }
     }
 
-    Popup {
-        id: useItemPopup
-        objectName: "useItemPopup"
-        property string itemKind: ""
-        function confirm(kind) { itemKind = kind; open() }
+    component ActionPopup: Popup {
+        id: actionPopup
+        property string headingText: ""
+        property string questionText: ""
+        property string detailText: ""
+        property string dangerText: ""
+        property string confirmText: ""
+        signal confirmed()
         parent: Overlay.overlay
         x: Math.round((root.width - width) / 2)
         y: Math.round((root.height - height) / 2)
         width: Math.min(370, root.width - 32)
-        height: 158
+        height: Math.min(root.height - 32, Math.max(158, contentItem.implicitHeight + 2 * padding))
         modal: true
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -91,11 +146,30 @@ Rectangle {
         background: Rectangle { color: root.panelColor; radius: 12; border.color: root.borderColor; border.width: 1 }
         contentItem: ColumnLayout {
             spacing: 11
-            Text { text: appModel.strings.use_item_title; color: root.textColor; font.pixelSize: 17; font.weight: Font.DemiBold }
+            Text { text: actionPopup.headingText; color: root.textColor; font.pixelSize: 17; font.weight: Font.DemiBold }
             Text {
+                objectName: "actionQuestionText"
                 Layout.fillWidth: true
-                text: root.format(appModel.strings.use_item_question, {item: useItemPopup.itemKind === "rare_candy" ? appModel.strings.rare_candy : appModel.strings.mint})
+                text: actionPopup.questionText
                 color: root.mutedColor
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                objectName: "actionDetailText"
+                Layout.fillWidth: true
+                visible: actionPopup.detailText.length > 0
+                text: actionPopup.detailText
+                color: root.mutedColor
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                objectName: "actionDangerText"
+                Layout.fillWidth: true
+                visible: actionPopup.dangerText.length > 0
+                text: actionPopup.dangerText
+                color: root.warningColor
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
             }
@@ -103,21 +177,285 @@ Rectangle {
             RowLayout {
                 Layout.alignment: Qt.AlignRight
                 spacing: 8
-                AppButton { text: appModel.strings.cancel; onClicked: useItemPopup.close() }
+                AppButton { text: appModel.strings.cancel; onClicked: actionPopup.close() }
                 AppButton {
-                    text: appModel.strings.confirm_use
+                    text: actionPopup.confirmText
                     highlighted: true
                     onClicked: {
-                        const kind = useItemPopup.itemKind
-                        useItemPopup.close()
-                        appModel.useItem(kind)
+                        actionPopup.close()
+                        actionPopup.confirmed()
                     }
                 }
             }
         }
     }
 
+    ActionPopup {
+        id: useItemPopup
+        objectName: "useItemPopup"
+        property string itemKind: ""
+        function confirm(kind) { itemKind = kind; open() }
+        headingText: appModel.strings.use_item_title
+        questionText: root.format(appModel.strings.use_item_question, {
+            item: itemKind === "rare_candy" ? appModel.strings.rare_candy : appModel.strings.mint
+        })
+        confirmText: appModel.strings.confirm_use
+        onConfirmed: appModel.useItem(itemKind)
+    }
+
+    Popup {
+        id: candyPopup
+        objectName: "candyPopup"
+        property var options: ({maxCount: 0})
+        property int selectedCount: 1
+        readonly property var preview: appModel.candyPreview(selectedCount)
+        function confirm() {
+            const current = appModel.candyOptions()
+            if (!current.maxCount) return
+            options = current
+            selectedCount = 1
+            open()
+        }
+        parent: Overlay.overlay
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        width: Math.min(500, root.width - 32)
+        height: Math.min(root.height - 32, Math.max(360, contentItem.implicitHeight + 2 * padding))
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 18
+        Overlay.modal: Rectangle { color: "#80000000" }
+        background: Rectangle { color: root.panelColor; radius: 12; border.color: root.borderColor; border.width: 1 }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text { Layout.fillWidth: true; text: appModel.strings.candy_modal_title; color: root.textColor; font.pixelSize: 19; font.weight: Font.DemiBold }
+            Text {
+                Layout.fillWidth: true
+                text: root.format(appModel.strings.candy_modal_subtitle, {
+                    name: candyPopup.options.name || "", progress: candyPopup.options.progress || "",
+                    available: candyPopup.options.available || 0
+                })
+                color: root.mutedColor
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+            Item { Layout.preferredHeight: 2 }
+            Text { text: appModel.strings.candy_quantity; color: root.mutedColor; font.pixelSize: 11; font.weight: Font.DemiBold }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 58
+                radius: 8
+                color: root.panelAltColor
+                border.color: root.borderColor
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    AppButton {
+                        text: "−"
+                        accessibleName: appModel.strings.candy_quantity + " −"
+                        enabled: candyPopup.selectedCount > 1
+                        implicitWidth: 48
+                        onClicked: candyPopup.selectedCount--
+                    }
+                    Text {
+                        objectName: "candySelectedCount"
+                        Layout.fillWidth: true
+                        text: String(candyPopup.selectedCount)
+                        color: root.textColor
+                        font.pixelSize: 28
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    AppButton {
+                        objectName: "candyIncrementButton"
+                        text: "+"
+                        accessibleName: appModel.strings.candy_quantity + " +"
+                        enabled: candyPopup.selectedCount < candyPopup.options.maxCount
+                        implicitWidth: 48
+                        onClicked: candyPopup.selectedCount++
+                    }
+                }
+            }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.borderColor }
+            RowLayout {
+                visible: candyPopup.options.nextCount > 0
+                Layout.fillWidth: true
+                Text { text: appModel.strings.candy_until_next; color: root.mutedColor; font.pixelSize: 13; Layout.fillWidth: true }
+                Button {
+                    objectName: "candyNextQuick"
+                    text: root.format(appModel.strings.candy_choose_count, {count: candyPopup.options.nextCount || 0})
+                    enabled: candyPopup.options.nextCount <= candyPopup.options.maxCount
+                    implicitHeight: 30
+                    activeFocusOnTab: true
+                    Accessible.name: appModel.strings.candy_until_next + ": " + text
+                    Accessible.role: Accessible.Button
+                    FocusFrame { }
+                    contentItem: Text { text: parent.text; color: parent.enabled ? root.accentColor : root.mutedColor; font.pixelSize: 13; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
+                    background: Item { }
+                    onClicked: candyPopup.selectedCount = candyPopup.options.nextCount
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Text { text: appModel.strings.candy_until_finish; color: root.mutedColor; font.pixelSize: 13; Layout.fillWidth: true }
+                Button {
+                    objectName: "candyFinishQuick"
+                    text: root.format(appModel.strings.candy_choose_count, {count: candyPopup.options.completionCount || 0})
+                    enabled: candyPopup.options.completionCount <= candyPopup.options.maxCount
+                    implicitHeight: 30
+                    activeFocusOnTab: true
+                    Accessible.name: appModel.strings.candy_until_finish + ": " + text
+                    Accessible.role: Accessible.Button
+                    FocusFrame { }
+                    contentItem: Text { text: parent.text; color: parent.enabled ? root.accentColor : root.mutedColor; font.pixelSize: 13; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
+                    background: Item { }
+                    onClicked: candyPopup.selectedCount = candyPopup.options.completionCount
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: candyPopup.preview.discarded ? 67 : 51
+                radius: 8
+                color: root.accentSurface
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 2
+                    Text { text: appModel.strings.candy_result_label; color: root.mutedColor; font.pixelSize: 10; font.weight: Font.DemiBold }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "+" + (candyPopup.preview.amount || "0") + " EXP  →  " + (candyPopup.preview.outcome || "")
+                        color: root.textColor
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        visible: !!candyPopup.preview.discarded
+                        Layout.fillWidth: true
+                        text: candyPopup.preview.discarded || ""
+                        color: root.warningColor
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+            Item { Layout.fillHeight: true; Layout.preferredHeight: 2 }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+                AppButton { text: appModel.strings.cancel; onClicked: candyPopup.close() }
+                AppButton {
+                    objectName: "candyConfirmButton"
+                    text: root.format(appModel.strings.candy_confirm_count, {count: candyPopup.selectedCount})
+                    highlighted: true
+                    onClicked: {
+                        const count = candyPopup.selectedCount
+                        candyPopup.close()
+                        appModel.useRareCandy(count)
+                    }
+                }
+            }
+        }
+    }
+
+    ActionPopup {
+        id: purchasePopup
+        objectName: "purchasePopup"
+        property var selection: ({kind: "item", key: "", title: "", price: ""})
+        function confirm(item) { selection = item; open() }
+        headingText: selection.kind === "egg" ? appModel.strings.buy_egg_title : appModel.strings.buy_item_title
+        questionText: root.format(appModel.strings.purchase_question, {
+            item: selection.title, price: selection.price
+        })
+        detailText: selection.kind === "egg" && appModel.hasActiveCompanion
+            ? appModel.strings.egg_replacement_warning : ""
+        dangerText: selection.kind === "egg" && appModel.activeCompanionShiny
+            ? appModel.strings.egg_shiny_warning : ""
+        confirmText: selection.kind === "egg" ? appModel.strings.confirm_buy_egg : appModel.strings.confirm_buy_item
+        onConfirmed: appModel.buy(selection.kind, selection.key)
+    }
+
+    component MiddleAutoScroll: Item {
+        id: autoScroll
+        required property var flickable
+        property bool scrolling: false
+        property real originX: 0
+        property real originY: 0
+        readonly property bool canScroll: flickable && flickable.contentHeight > flickable.height + 1
+        z: 20
+
+        function stop() { scrolling = false }
+        onVisibleChanged: if (!visible) stop()
+        onCanScrollChanged: if (!canScroll) stop()
+        Connections {
+            target: appModel
+            function onDataChanged() {
+                if (!appModel.windowActive) autoScroll.stop()
+            }
+        }
+        TapHandler {
+            acceptedDevices: PointerDevice.Mouse
+            acceptedButtons: Qt.MiddleButton
+            onTapped: (point, button) => {
+                if (autoScroll.scrolling) {
+                    autoScroll.stop()
+                } else if (autoScroll.canScroll) {
+                    autoScroll.originX = point.position.x
+                    autoScroll.originY = point.position.y
+                    autoScroll.scrolling = true
+                }
+            }
+        }
+        TapHandler {
+            enabled: autoScroll.scrolling
+            acceptedDevices: PointerDevice.Mouse
+            acceptedButtons: Qt.LeftButton
+            onTapped: autoScroll.stop()
+        }
+        Timer {
+            interval: 16
+            repeat: true
+            running: autoScroll.scrolling
+            onTriggered: {
+                if (!autoScroll.visible || !autoScroll.canScroll || !appPointer.hovered) {
+                    autoScroll.stop()
+                    return
+                }
+                const pointer = autoScroll.mapFromItem(
+                    root, appPointer.point.position.x, appPointer.point.position.y
+                )
+                const distance = pointer.y - autoScroll.originY
+                const beyondDeadZone = Math.max(0, Math.abs(distance) - 12)
+                if (beyondDeadZone === 0) return
+                const step = Math.sign(distance) * Math.min(36, beyondDeadZone * 0.12)
+                const maxY = Math.max(0, autoScroll.flickable.contentHeight - autoScroll.flickable.height)
+                autoScroll.flickable.contentY = Math.max(0, Math.min(maxY, autoScroll.flickable.contentY + step))
+            }
+        }
+        Rectangle {
+            visible: autoScroll.scrolling
+            x: Math.max(2, Math.min(autoScroll.width - width - 2, autoScroll.originX - width / 2))
+            y: Math.max(2, Math.min(autoScroll.height - height - 2, autoScroll.originY - height / 2))
+            width: 28
+            height: 28
+            radius: 14
+            color: root.panelColor
+            border.color: root.accentColor
+            border.width: 1
+            Text { anchors.centerIn: parent; text: "↕"; color: root.accentColor; font.pixelSize: 18 }
+        }
+    }
+
     component PageScroll: ScrollView {
+        id: pageScroll
+        MiddleAutoScroll {
+            objectName: "pageAutoScroll"
+            parent: pageScroll
+            anchors.fill: parent
+            flickable: pageScroll.contentItem
+        }
         function revealItem(item) {
             const flickable = contentItem
             const position = item.mapToItem(flickable.contentItem, 0, 0)
@@ -132,7 +470,7 @@ Rectangle {
     component FocusFrame: Rectangle {
         anchors.fill: parent
         anchors.margins: -2
-        visible: parent.activeFocus
+        visible: parent.visualFocus
         color: "transparent"
         radius: 6
         border.width: 2
@@ -308,8 +646,35 @@ Rectangle {
             }
         }
         HoverHandler { id: representativeHover }
-        ToolTip.visible: representativeHover.hovered
-        ToolTip.text: label
+        AppToolTip { requestedVisible: representativeHover.hovered; text: label }
+    }
+
+    component AppToolTip: ToolTip {
+        id: tooltip
+        property bool requestedVisible: false
+        visible: requestedVisible && appModel.windowActive && root.activeTooltip === tooltip
+        onRequestedVisibleChanged: {
+            if (requestedVisible && appModel.windowActive) root.activeTooltip = tooltip
+            else if (root.activeTooltip === tooltip) root.activeTooltip = null
+        }
+        delay: 550
+        timeout: 5000
+        padding: 8
+        TextMetrics { id: textMetrics; font.pixelSize: 11; text: tooltip.text }
+        width: Math.min(320, Math.max(32, Math.ceil(textMetrics.advanceWidth) + 2 * padding))
+        contentItem: Text {
+            text: tooltip.text
+            color: root.textColor
+            font.pixelSize: 11
+            wrapMode: Text.WordWrap
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            color: root.panelColor
+            radius: 7
+            border.color: root.borderColor
+            border.width: 1
+        }
     }
 
     component Panel: Rectangle {
@@ -387,7 +752,10 @@ Rectangle {
                     implicitHeight: 34
                     leftPadding: 10
                     rightPadding: 10
-                    onClicked: useItemPopup.confirm(bagCard.itemKind)
+                    onClicked: {
+                        if (bagCard.itemKind === "rare_candy") candyPopup.confirm()
+                        else useItemPopup.confirm(bagCard.itemKind)
+                    }
                 }
             }
         }
@@ -398,9 +766,7 @@ Rectangle {
         color: root.textColor
         font.pixelSize: 12
         HoverHandler { id: infoHover }
-        ToolTip.visible: infoHover.hovered
-        ToolTip.delay: 550
-        ToolTip.text: helpText
+        AppToolTip { requestedVisible: infoHover.hovered; text: helpText }
         Accessible.description: helpText
     }
 
@@ -411,8 +777,8 @@ Rectangle {
         background: Rectangle {
             radius: 8
             color: root.panelAltColor
-            border.color: styledCombo.activeFocus ? root.accentColor : root.borderColor
-            border.width: styledCombo.activeFocus ? 2 : 1
+            border.color: styledCombo.visualFocus ? root.accentColor : root.borderColor
+            border.width: styledCombo.visualFocus ? 2 : 1
         }
         contentItem: Text {
             leftPadding: 11
@@ -486,8 +852,8 @@ Rectangle {
         background: Rectangle {
             color: root.panelAltColor
             radius: 8
-            border.color: styledSpin.activeFocus ? root.accentColor : root.borderColor
-            border.width: styledSpin.activeFocus ? 2 : 1
+            border.color: styledSpin.visualFocus ? root.accentColor : root.borderColor
+            border.width: styledSpin.visualFocus ? 2 : 1
         }
         contentItem: Text {
             text: styledSpin.textFromValue(styledSpin.value, styledSpin.locale)
@@ -570,8 +936,52 @@ Rectangle {
             color: control.enabled
                 ? (control.highlighted ? root.accentColor : (control.hovered ? root.accentSurface : root.panelAltColor))
                 : (root.darkMode ? "#1a2230" : "#edf0f4")
-            border.color: control.activeFocus ? root.accentColor : (control.highlighted ? "transparent" : root.borderColor)
-            border.width: control.activeFocus ? 2 : 1
+            border.color: control.visualFocus ? root.accentColor : (control.highlighted ? "transparent" : root.borderColor)
+            border.width: control.visualFocus ? 2 : 1
+        }
+    }
+
+    component ShinyVariantToggle: Item {
+        id: variant
+        required property int speciesId
+        required property string speciesName
+        required property bool hasNormal
+        required property bool showShiny
+        readonly property string hint: hasNormal
+            ? root.format(showShiny ? appModel.strings.view_normal : appModel.strings.view_shiny,
+                          {name: speciesName})
+            : root.format(appModel.strings.shiny_only_caught, {name: speciesName})
+        implicitWidth: 40
+        implicitHeight: 40
+        z: 3
+        Button {
+            id: variantButton
+            objectName: "dexShinyToggle"
+            anchors.fill: parent
+            enabled: variant.hasNormal
+            activeFocusOnTab: variant.hasNormal
+            Accessible.name: variant.hint
+            Accessible.role: Accessible.Button
+            FocusFrame { }
+            contentItem: Text {
+                text: "✨"
+                font.pixelSize: 23
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 8
+                color: variant.showShiny
+                    ? (root.darkMode ? "#3b3322" : "#fff1cf") : root.panelAltColor
+                border.color: variant.showShiny ? root.warningColor : root.borderColor
+                border.width: 1
+            }
+            onClicked: appModel.toggleDexVariant(variant.speciesId)
+        }
+        HoverHandler { id: variantHover; acceptedDevices: PointerDevice.Mouse }
+        AppToolTip {
+            requestedVisible: variantHover.hovered || variantButton.visualFocus
+            text: variant.hint
         }
     }
 
@@ -585,9 +995,7 @@ Rectangle {
         activeFocusOnTab: true
         Accessible.name: helpText
         Accessible.role: Accessible.Button
-        ToolTip.visible: hovered || activeFocus
-        ToolTip.delay: 500
-        ToolTip.text: helpText
+        AppToolTip { requestedVisible: windowControl.hovered || windowControl.visualFocus; delay: 500; text: helpText }
         padding: 0
         contentItem: Item {
             Canvas {
@@ -661,16 +1069,14 @@ Rectangle {
         Accessible.name: nav.text
         Accessible.description: nav.description
         Accessible.role: Accessible.PageTab
-        ToolTip.visible: nav.hovered || nav.activeFocus
-        ToolTip.delay: 550
-        ToolTip.text: nav.description
+        AppToolTip { objectName: "navigationTooltip-" + nav.pageIndex; requestedVisible: nav.hovered || nav.visualFocus; text: nav.description }
         implicitHeight: 38
         onClicked: root.currentPage = pageIndex
         background: Rectangle {
             radius: 7
             color: nav.checked ? root.accentSurface : (nav.hovered ? root.panelAltColor : "transparent")
-            border.color: nav.activeFocus ? root.accentColor : "transparent"
-            border.width: nav.activeFocus ? 2 : 0
+            border.color: nav.visualFocus ? root.accentColor : "transparent"
+            border.width: nav.visualFocus ? 2 : 0
             Rectangle {
                 visible: nav.checked
                 anchors.left: parent.left
@@ -789,9 +1195,10 @@ Rectangle {
 
         }
         HoverHandler { id: toggleHover }
-        ToolTip.visible: (toggleHover.hovered || toggle.activeFocus) && toggleRow.detail.length > 0
-        ToolTip.delay: 550
-        ToolTip.text: toggleRow.detail
+        AppToolTip {
+            requestedVisible: (toggleHover.hovered || toggle.visualFocus) && toggleRow.detail.length > 0
+            text: toggleRow.detail
+        }
         Switch {
             id: toggle
             activeFocusOnTab: true
@@ -811,10 +1218,15 @@ Rectangle {
         checked: appModel.dexFilter === filterKey
         activeFocusOnTab: true
         implicitHeight: 28
-        implicitWidth: chipContent.implicitWidth + 18
+        leftPadding: 7
+        rightPadding: 7
+        implicitWidth: chipContent.implicitWidth + leftPadding + rightPadding
         Accessible.name: root.format(appModel.strings.filter_by, {label: label})
         Accessible.role: Accessible.RadioButton
-        onClicked: appModel.setDexFilter(filterKey)
+        onClicked: {
+            root.returnDexIndex = -1
+            appModel.setDexFilter(filterKey)
+        }
         contentItem: RowLayout {
             id: chipContent
             spacing: 6
@@ -842,8 +1254,59 @@ Rectangle {
         background: Rectangle {
             radius: 7
             color: chip.checked ? root.accentSurface : "transparent"
-            border.color: chip.activeFocus ? root.accentColor : (chip.checked ? root.accentColor : root.borderColor)
-            border.width: chip.activeFocus || chip.checked ? 2 : 1
+            border.color: chip.visualFocus ? root.accentColor : (chip.checked ? root.accentColor : root.borderColor)
+            border.width: chip.visualFocus || chip.checked ? 2 : 1
+        }
+    }
+
+    component ShinyFilterChip: Button {
+        id: shinyChip
+        objectName: "shinyFilterChip"
+        checkable: true
+        checked: appModel.dexShinyOnly
+        enabled: appModel.dexShinyCount > 0 || appModel.dexShinyOnly
+        activeFocusOnTab: enabled
+        implicitHeight: 28
+        leftPadding: 8
+        rightPadding: 8
+        implicitWidth: shinyContent.implicitWidth + leftPadding + rightPadding
+        Accessible.name: appModel.strings.shiny_filter_hint
+        Accessible.role: Accessible.CheckBox
+        FocusFrame { }
+        onClicked: {
+            root.returnDexIndex = -1
+            appModel.setDexShinyOnly(checked)
+        }
+        contentItem: RowLayout {
+            id: shinyContent
+            spacing: 6
+            Text { text: "✨"; color: root.warningColor; font.pixelSize: 14 }
+            Rectangle {
+                implicitWidth: Math.max(20, shinyCount.implicitWidth + 10)
+                implicitHeight: 18
+                radius: 9
+                color: shinyChip.checked ? root.warningColor : root.panelColor
+                Text {
+                    id: shinyCount
+                    anchors.centerIn: parent
+                    text: appModel.dexShinyCount
+                    color: shinyChip.checked ? "#182231" : root.mutedColor
+                    font.pixelSize: 9
+                    font.weight: Font.DemiBold
+                }
+            }
+        }
+        background: Rectangle {
+            radius: 7
+            color: shinyChip.checked ? (root.darkMode ? "#3b3322" : "#fff1cf") : "transparent"
+            border.color: shinyChip.checked || shinyChip.visualFocus
+                ? root.warningColor : root.borderColor
+            border.width: shinyChip.checked || shinyChip.visualFocus ? 2 : 1
+        }
+        HoverHandler { id: shinyFilterHover; acceptedDevices: PointerDevice.Mouse }
+        AppToolTip {
+            requestedVisible: shinyFilterHover.hovered || shinyChip.visualFocus
+            text: appModel.strings.shiny_filter_hint
         }
     }
 
@@ -888,7 +1351,7 @@ Rectangle {
                     background: Rectangle {
                         radius: 5
                         color: optionButton.checked ? root.panelColor : "transparent"
-                        border.color: optionButton.activeFocus ? root.accentColor : (optionButton.checked ? root.borderColor : "transparent")
+                        border.color: optionButton.visualFocus ? root.accentColor : (optionButton.checked ? root.borderColor : "transparent")
                     }
                 }
             }
@@ -1052,6 +1515,11 @@ Rectangle {
                                         highlighted: true
                                         enabled: appModel.refreshEnabled
                                         onClicked: appModel.requestRefresh()
+                                        AppToolTip {
+                                            objectName: "refreshTooltip"
+                                            requestedVisible: parent.hovered || parent.visualFocus
+                                            text: appModel.strings.refresh_shortcut_help
+                                        }
                                     }
                                 }
                                 RowLayout {
@@ -1067,9 +1535,11 @@ Rectangle {
                                         color: root.darkMode ? "#503b22" : "#fff0d6"
                                         Text { anchors.centerIn: parent; text: appModel.strings.repeat_boost; color: root.warningColor; font.pixelSize: 10; font.weight: Font.Bold }
                                         HoverHandler { id: growthHover }
-                                        ToolTip.visible: growthHover.hovered
-                                        ToolTip.delay: 450
-                                        ToolTip.text: appModel.strings.repeat_boost_help
+                                        AppToolTip {
+                                            requestedVisible: growthHover.hovered
+                                            delay: 450
+                                            text: appModel.strings.repeat_boost_help
+                                        }
                                         Accessible.name: appModel.strings.repeat_boost_help
                                     }
                                 }
@@ -1323,6 +1793,12 @@ Rectangle {
                             ListView {
                                 id: providersList
                                 objectName: "providersList"
+                                MiddleAutoScroll {
+                                    objectName: "providersListAutoScroll"
+                                    parent: providersList
+                                    anchors.fill: parent
+                                    flickable: providersList
+                                }
                                 boundsBehavior: Flickable.StopAtBounds
                                 interactive: contentHeight > height
                                 Layout.fillWidth: true
@@ -1368,6 +1844,12 @@ Rectangle {
                             ListView {
                                 id: limitsContent
                                 objectName: "limitsContent"
+                                MiddleAutoScroll {
+                                    objectName: "limitsContentAutoScroll"
+                                    parent: limitsContent
+                                    anchors.fill: parent
+                                    flickable: limitsContent
+                                }
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 clip: true
@@ -1431,9 +1913,13 @@ Rectangle {
 
             PageScroll {
                 id: collectionPage
+                objectName: "collectionPage"
                 clip: true
+                onAvailableHeightChanged: Qt.callLater(root.syncDexViewport)
+                onAvailableWidthChanged: Qt.callLater(root.syncDexViewport)
                 contentWidth: availableWidth
                 ColumnLayout {
+                    id: collectionContent
                     width: collectionPage.availableWidth
                     spacing: 10
                     Item { Layout.preferredHeight: 4 }
@@ -1485,7 +1971,7 @@ Rectangle {
                                             color: root.accentColor
                                         }
                                         Rectangle {
-                                            visible: collectionTab.activeFocus
+                                            visible: collectionTab.visualFocus
                                             anchors.fill: parent
                                             radius: 6
                                             color: "transparent"
@@ -1501,12 +1987,13 @@ Rectangle {
                             objectName: "dexFilterRow"
                             visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 28
-                            spacing: 8
+                            Layout.preferredHeight: Math.max(28, rarityFilterFlow.childrenRect.height)
+                            spacing: 5
                             Flow {
+                                id: rarityFilterFlow
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 28
-                                spacing: 5
+                                Layout.preferredHeight: Math.max(28, childrenRect.height)
+                                spacing: 4
                                 Repeater {
                                     model: appModel.dexFilters
                                     FilterChip {
@@ -1517,24 +2004,16 @@ Rectangle {
                                     }
                                 }
                             }
-                            Text {
-                                objectName: "dexPagePosition"
-                                text: root.format(appModel.strings.page, {page: appModel.dexPage, count: appModel.dexPageCount})
-                                color: root.mutedColor
-                                font.pixelSize: 11
-                                Layout.alignment: Qt.AlignVCenter
-                            }
+                            ShinyFilterChip { }
                         }
                     }
-                    Text {
-                        visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
-                        Layout.leftMargin: 14
-                        text: appModel.dexSummary
-                        color: root.mutedColor
-                        font.pixelSize: 11
-                    }
                     GridLayout {
+                        id: dexGrid
+                        objectName: "dexGrid"
                         visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
+                        onWidthChanged: Qt.callLater(root.syncDexViewport)
+                        onYChanged: Qt.callLater(root.syncDexViewport)
+                        onColumnsChanged: Qt.callLater(root.syncDexViewport)
                         Layout.fillWidth: true
                         Layout.leftMargin: 14
                         Layout.rightMargin: 14
@@ -1545,9 +2024,10 @@ Rectangle {
                             model: appModel.dexEntries
                             Panel {
                                 id: dexCard
+                                objectName: "dexCard"
                                 required property var modelData
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: modelData.hasShiny ? 210 : 174
+                                Layout.preferredHeight: 174
                                 border.color: modelData.representative
                                     ? root.successColor
                                     : (dexCardButton.hovered ? root.accentColor : root.borderColor)
@@ -1574,17 +2054,30 @@ Rectangle {
                                     Image { source: modelData.sprite; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 108; Layout.preferredHeight: 108; fillMode: Image.PreserveAspectFit; smooth: false }
                                     RowLayout {
                                         Layout.fillWidth: true
-                                        Text { text: modelData.number; color: root.mutedColor; font.pixelSize: 10 }
-                                        Item { Layout.fillWidth: true }
-                                        Text { visible: modelData.showShiny; text: "✨"; font.pixelSize: 11 }
-                                    }
-                                    Text { text: modelData.name; color: root.textColor; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight; Layout.fillWidth: true }
-                                    AppButton {
-                                        Layout.fillWidth: true
-                                        visible: modelData.hasShiny
-                                        text: modelData.showShiny ? "Normal" : "Shiny"
-                                        accessibleName: root.format(modelData.showShiny ? appModel.strings.view_normal : appModel.strings.view_shiny, {name: modelData.name})
-                                        onClicked: appModel.toggleDexVariant(modelData.speciesId)
+                                        Layout.preferredHeight: 40
+                                        spacing: 4
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Text { text: modelData.number; color: root.mutedColor; font.pixelSize: 10 }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: modelData.name
+                                                color: root.textColor
+                                                font.pixelSize: 12
+                                                font.weight: Font.Medium
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                        ShinyVariantToggle {
+                                            visible: modelData.hasShiny
+                                            Layout.preferredWidth: 40
+                                            Layout.preferredHeight: 40
+                                            speciesId: modelData.speciesId
+                                            speciesName: modelData.name
+                                            hasNormal: modelData.hasNormal
+                                            showShiny: modelData.showShiny
+                                        }
                                     }
                                 }
                                 RepresentativeCheck {
@@ -1603,13 +2096,35 @@ Rectangle {
                     }
                     Text { visible: root.collectionMode === "dex" && root.selectedDexIndex < 0 && appModel.dexEntries.length === 0; Layout.leftMargin: 14; text: appModel.strings.empty_pokedex; color: root.mutedColor; font.pixelSize: 12 }
                     RowLayout {
+                        id: dexPagination
+                        objectName: "dexPagination"
                         visible: root.collectionMode === "dex" && root.selectedDexIndex < 0
+                        onHeightChanged: Qt.callLater(root.syncDexViewport)
                         Layout.fillWidth: true
                         Layout.leftMargin: 14
                         Layout.rightMargin: 14
-                        AppButton { text: appModel.strings.previous; enabled: appModel.dexPage > 1; onClicked: appModel.moveDexPage(-1) }
-                        Item { Layout.fillWidth: true }
-                        AppButton { text: appModel.strings.next; enabled: appModel.dexPage < appModel.dexPageCount; onClicked: appModel.moveDexPage(1) }
+                        AppButton {
+                            objectName: "dexPreviousPage"
+                            text: appModel.strings.previous
+                            enabled: appModel.dexPage > 1
+                            onClicked: root.navigateDex(-1)
+                        }
+                        Text {
+                            objectName: "dexPagePosition"
+                            Layout.fillWidth: true
+                            text: root.format(appModel.strings.page, {page: appModel.dexPage, count: appModel.dexPageCount})
+                            color: root.mutedColor
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        AppButton {
+                            objectName: "dexNextPage"
+                            text: appModel.strings.next
+                            enabled: appModel.dexPage < appModel.dexPageCount
+                            onClicked: root.navigateDex(1)
+                        }
                     }
                     Panel {
                         objectName: "dexDetailPanel"
@@ -1651,18 +2166,21 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Text {
-                                    text: (root.selectedDex.showShiny ? "✨ " : "") +
-                                          (root.selectedDex.name || "") + "  " +
+                                    text: (root.selectedDex.name || "") + "  " +
                                           (root.selectedDex.number || "")
                                     color: root.textColor
                                     font.pixelSize: 19
                                     font.weight: Font.DemiBold
                                     Layout.fillWidth: true
                                 }
-                                AppButton {
+                                ShinyVariantToggle {
                                     visible: !!root.selectedDex.hasShiny
-                                    text: root.selectedDex.showShiny ? "Normal" : "Shiny"
-                                    onClicked: appModel.toggleDexVariant(root.selectedDex.speciesId)
+                                    Layout.preferredWidth: 40
+                                    Layout.preferredHeight: 40
+                                    speciesId: root.selectedDex.speciesId || 0
+                                    speciesName: root.selectedDex.name || ""
+                                    hasNormal: !!root.selectedDex.hasNormal
+                                    showShiny: !!root.selectedDex.showShiny
                                 }
                             }
                             Text {
@@ -1710,19 +2228,13 @@ Rectangle {
                         AppButton {
                             text: appModel.strings.previous
                             enabled: root.selectedDexIndex > 0
-                            onClicked: {
-                                root.selectedDexIndex--
-                                collectionPage.contentItem.contentY = 0
-                            }
+                            onClicked: root.navigateDex(-1)
                         }
                         Item { Layout.fillWidth: true }
                         AppButton {
                             text: appModel.strings.next
                             enabled: root.selectedDexIndex < appModel.dexBrowseEntries.length - 1
-                            onClicked: {
-                                root.selectedDexIndex++
-                                collectionPage.contentItem.contentY = 0
-                            }
+                            onClicked: root.navigateDex(1)
                         }
                     }
                     Text { visible: root.collectionMode === "catches" && appModel.catches.length === 0; Layout.leftMargin: 14; text: appModel.strings.empty_catches; color: root.mutedColor; font.pixelSize: 12 }
@@ -1750,12 +2262,12 @@ Rectangle {
                                         Text { text: modelData.meta; color: root.mutedColor; font.pixelSize: 10 }
                                     }
                                     Text {
-                                        objectName: "raisingBadge"
+                                        objectName: "catchStatusBadge"
                                         anchors.right: parent.right
                                         anchors.top: parent.top
-                                        visible: modelData.current
-                                        text: appModel.strings.raising
-                                        color: root.accentColor
+                                        visible: modelData.statusLabel !== ""
+                                        text: modelData.statusLabel
+                                        color: modelData.current ? root.accentColor : root.mutedColor
                                         font.pixelSize: 10
                                         font.weight: Font.Medium
                                     }
@@ -1791,7 +2303,10 @@ Rectangle {
                             }
                         }
                     }
-                    Item { Layout.preferredHeight: 10 }
+                    Item {
+                        visible: root.collectionMode !== "dex" || root.selectedDexIndex >= 0
+                        Layout.preferredHeight: 10
+                    }
                 }
             }
 
@@ -1887,7 +2402,7 @@ Rectangle {
                             Panel {
                                 required property var modelData
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 172
+                                Layout.preferredHeight: modelData.disabledReason.length ? 192 : 172
                                 ColumnLayout {
                                     anchors.fill: parent
                                     anchors.margins: 12
@@ -1931,6 +2446,7 @@ Rectangle {
                                         }
                                     }
                                     Text { text: modelData.subtitle; color: root.mutedColor; font.pixelSize: 11; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                                    Text { visible: modelData.disabledReason.length > 0; text: modelData.disabledReason; color: root.mutedColor; font.pixelSize: 10; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                                     Item { Layout.fillHeight: true }
                                     AppButton {
                                         Layout.fillWidth: true
@@ -1938,7 +2454,7 @@ Rectangle {
                                         accessibleName: root.format(appModel.strings.buy, {title: modelData.title, price: text})
                                         highlighted: modelData.enabled
                                         enabled: modelData.enabled
-                                        onClicked: appModel.buy(modelData.kind, modelData.key)
+                                        onClicked: purchasePopup.confirm(modelData)
                                     }
                                 }
                             }
@@ -2041,9 +2557,10 @@ Rectangle {
                                         activeFocusOnTab: true
                                         Accessible.name: appModel.strings.desktop_representative
                                         Accessible.description: appModel.strings.representative_help
-                                        ToolTip.visible: hovered || activeFocus
-                                        ToolTip.delay: 550
-                                        ToolTip.text: appModel.strings.representative_help
+                                        AppToolTip {
+                                            requestedVisible: hovered || visualFocus
+                                            text: appModel.strings.representative_help
+                                        }
                                         FocusFrame { }
                                         model: appModel.collection
                                         textRole: "display"
@@ -2150,8 +2667,18 @@ Rectangle {
                                 ToggleRow { objectName: "trayLimitToggle"; label: appModel.strings.tray_limit; detail: appModel.strings.tray_limit_help; checked: appModel.trayShowLimit; onChanged: value => appModel.setPreference("trayShowLimit", value) }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    AppButton { objectName: "exportBackupButton"; text: appModel.strings.export_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestExport() }
-                                    AppButton { objectName: "importBackupButton"; text: appModel.strings.import_backup; ToolTip.visible: hovered; ToolTip.text: appModel.strings.backup_help; onClicked: appModel.requestImport() }
+                                    AppButton {
+                                        objectName: "exportBackupButton"
+                                        text: appModel.strings.export_backup
+                                        AppToolTip { requestedVisible: parent.hovered; text: appModel.strings.backup_help }
+                                        onClicked: appModel.requestExport()
+                                    }
+                                    AppButton {
+                                        objectName: "importBackupButton"
+                                        text: appModel.strings.import_backup
+                                        AppToolTip { requestedVisible: parent.hovered; text: appModel.strings.backup_help }
+                                        onClicked: appModel.requestImport()
+                                    }
                                 }
                             }
                         }

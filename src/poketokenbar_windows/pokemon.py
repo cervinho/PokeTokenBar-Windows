@@ -138,7 +138,21 @@ class PokeAPIClient:
                     return item["name"]
         return str(data.get("name") or f"#{species_id}").replace("-", " ").title()
 
-    def _random_path(self, node: dict[str, Any]) -> list[int]:
+    def _final_ids(self, node: dict[str, Any]) -> set[int]:
+        children = [c for c in node.get("evolves_to", []) if isinstance(c, dict)]
+        supported = [c for c in children if (_species_id(c.get("species")) or 9999) <= 649]
+        if not supported:
+            species_id = _species_id(node.get("species"))
+            return {species_id} if species_id is not None and species_id <= 649 else set()
+        finals: set[int] = set()
+        for child in supported:
+            finals.update(self._final_ids(child))
+        return finals
+
+    def _random_path(
+        self, node: dict[str, Any], *, base_id: int | None = None,
+        completed_finals: set[tuple[int, int]] | None = None,
+    ) -> list[int]:
         species_id = _species_id(node.get("species"))
         if species_id is None or species_id > 649:
             return []
@@ -146,12 +160,29 @@ class PokeAPIClient:
         supported = [c for c in children if (_species_id(c.get("species")) or 9999) <= 649]
         if not supported:
             return [species_id]
+        base_id = base_id or species_id
+        if completed_finals:
+            fresh = [
+                child for child in supported
+                if any((base_id, final_id) not in completed_finals
+                       for final_id in self._final_ids(child))
+            ]
+            if fresh:
+                supported = fresh
         child = random.choice(supported)
-        suffix = self._random_path(child)
+        suffix = self._random_path(
+            child, base_id=base_id, completed_finals=completed_finals
+        )
         return [species_id] + suffix
 
-    def hatch(self, minimum_rarity: str | None = None, shiny_charm: bool = False, max_attempts: int = 1200) -> HatchResult:
+    def hatch(
+        self, minimum_rarity: str | None = None, shiny_charm: bool = False,
+        max_attempts: int = 1200,
+        completed_finals: set[tuple[int, int]] | None = None,
+    ) -> HatchResult:
         minimum_rank = RARITY_RANK.get(minimum_rarity or "common", 0)
+        completed_finals = completed_finals or set()
+        completed_bases = {base_id for base_id, _ in completed_finals}
         last_error: Exception | None = None
         for _ in range(max_attempts):
             species_id = random.randint(1, 649)
@@ -170,7 +201,10 @@ class PokeAPIClient:
                 continue
             # Upstream weights hatches by official capture rate. Rejection sampling
             # gives each base species probability proportional to capture_rate.
-            if random.randint(1, 255) > max(1, min(255, capture_rate)):
+            weight = max(1, min(255, capture_rate))
+            if species_id in completed_bases:
+                weight = max(1, weight // 2)
+            if random.randint(1, 255) > weight:
                 continue
             chain_ref = species.get("evolution_chain")
             if not isinstance(chain_ref, dict) or not isinstance(chain_ref.get("url"), str):
@@ -183,7 +217,9 @@ class PokeAPIClient:
             root = chain.get("chain")
             if not isinstance(root, dict):
                 continue
-            path = self._random_path(root)
+            path = self._random_path(
+                root, base_id=species_id, completed_finals=completed_finals
+            )
             if not path or path[0] != species_id:
                 continue
             denominator = SHINY_CHARM_DENOMINATOR if shiny_charm else SHINY_DENOMINATOR

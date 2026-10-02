@@ -13,16 +13,16 @@ A native Windows port of [chattymin/PokeTokenBar](https://github.com/chattymin/P
 - Animated Gen-V Pokemon sprites with static fallback, fetched and cached at runtime
 - Egg -> hatch -> real evolution path -> graduation progression
 - Upstream balance values: 5M hatch threshold; 750M / 1.875B / 3B / 6B graduation totals by rarity
-- 25 natures, PokeAPI capture-rate rarity, shiny hatches, and Shiny Charm
-- Bag and token shop: Rare Candy, Mint, Shiny Charm, normal/Uncommon/Rare eggs
-- Separate Home, Collection, Bag, Shop, and Settings areas; Pokédex with rarity filters and 24-species pages, owned Shiny variant toggle, separate catch history with evolution stages, and short in-app celebrations
-- Keyboard navigation with Tab/Shift+Tab, visible focus and accessible control names; scrollable pages keep the focused control in view
+- 25 natures with localized display names in Spanish and Galician, PokeAPI capture-rate rarity, shiny hatches, and Shiny Charm
+- Bag and token shop: Rare Candy quantity selection with evolution/completion previews, Mint, Shiny Charm, and normal/Uncommon/Rare eggs; purchases and item use share themed confirmation modals
+- Separate Home, Collection, Bag, Shop, and Settings areas; Pokédex with independent rarity and Shiny filters, pages sized to the visible grid, and an owned Shiny appearance selector, separate catch history with evolution stages, and short in-app celebrations
+- Keyboard navigation with Tab/Shift+Tab, F5 to refresh while the panel is focused, and Left/Right to browse Pokédex pages or details; visible focus and accessible control names keep controls reachable
 - Configurable light/dark/system theme, refresh interval, limit thresholds, used/remaining percentages, tray fields, notifications, Pokémon-name language, and save import/export
 - One upstream-style segmented Used/Remaining selector shared by Home, tray, and desktop-pet hover; compact surfaces use "left", Home gauges follow the selected mode, while warning/critical copy, thresholds, rewards, and risk colors always mean quota used
 - A shared Time left/Date & time selector formats resets in QML Home and the timing information shown by the tray and floating pet, including forecasts and reset-credit expiry
 - QML Home shows every returned official-limit window, including Luna Reserve when present, and the provider plan when available. The tray/hover switches to Luna Reserve only after the regular allowance is exhausted; optional depletion forecasts are available on those compact surfaces
-- QML Home shows companion progress as a percentage; the floating pet and tray retain their compact progression presentation
-- Deferred first window: the first usage/limit snapshot is rendered before the UI appears. QML animates the companion scale; the floating pet retains the Poké Ball reveal and representative-change transition
+- Home shows absolute token progress and a level label; the floating pet and tray retain their compact progression presentation
+- Deferred first window: the first usage/limit snapshot is rendered before the UI appears. Home keeps the loaded animated sprite visible during routine updates and uses a Poké Ball reveal for companion changes; the floating pet keeps its representative-change transition
 - Edge-triggered Rare Candy rewards when an official time window reaches 100%, with upstream-compatible first-snapshot seeding and stable identities that ignore one-second reset-time drift
 - Install-time usage baseline: pre-install usage is never retroactively converted into growth or shop currency
 - Collection/catch history and persistent state under `%APPDATA%\PokeTokenBar-Windows`
@@ -30,13 +30,14 @@ A native Windows port of [chattymin/PokeTokenBar](https://github.com/chattymin/P
 - Start with Windows via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 - Local token/cost aggregation for Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, Grok CLI, GitHub Copilot CLI, and Kiro CLI
 - Claude official limits via `~\.claude\.credentials.json`
-- Codex official limits and available reset-credit expiry via `codex app-server --stdio`. QML renders the returned time windows; reset-credit expiry warnings remain available in the tray and floating pet, but dedicated credit rows are not yet exposed in QML Home
+- Codex official limits and available reset-credit expiry via `codex app-server --stdio`. QML renders the returned time windows and reset-credit rows; expiry warnings are also available in the tray and floating pet
 
 ## Game loop and items
 
-Only one egg or companion is raised at a time; previously reached species remain in the Pokédex. A normal egg hatches after 5M newly observed tokens. Completing the final stage graduates the companion automatically and starts a fresh egg, so buying an egg is only a paid reroll that discards the unfinished active companion. Normal, Uncommon+, and Rare+ shop eggs cost 1B, 2.5B, and 4B wallet tokens.
+Only one egg or companion is raised at a time; previously reached species remain in the Pokédex. A normal egg hatches after 5M newly observed tokens. Completing the final stage graduates the companion automatically and starts a fresh egg, so buying an egg releases the unfinished active companion, preserves its reached forms and restarts incubation. A shop egg cannot replace another incubating egg. Normal, Uncommon+, and Rare+ shop eggs cost 1B, 2.5B, and 4B wallet tokens.
 
-- **Rare Candy** adds 100M progression without altering real usage totals. Filling a session-class limit grants one; filling a weekly-class limit (including Luna Reserve) grants five. Using one schedules an immediate full refresh.
+- **Rare Candy** adds 100M progression per candy without altering real usage totals. The Bag modal selects a batch or the minimum for the next evolution/completion. EXP carries through evolutions; only excess after final completion is discarded, and candy cannot be used on an egg. Filling a session-class limit grants one; filling a weekly-class limit (including Luna Reserve) grants five. Using candy schedules an immediate full refresh.
+- **Completed lines** lower their base species' future hatch weight by half, prefer unfinished final branches, and unlock double growth speed when the base hatches again. Releasing a repeated attempt preserves earlier completion credit.
 - **Mint** costs 100M and rerolls the active companion's cosmetic nature.
 - **Shiny Charm** costs 3B, is permanent, and improves future hatch odds from 1/64 to 1/48; it is not retroactive.
 
@@ -153,17 +154,17 @@ Codex official limits use a local child process. The app does not upload your lo
 
 The active main window uses QML. The retained legacy Widgets `MainWindow` is not the user-facing window, so features implemented only there are not available in QML. Current gaps:
 
-- QML Home does not yet show depletion forecasts, reset-credit rows, or a missing-Luna placeholder. It has a global refresh button, but no dedicated authentication/account recovery UI.
+- Home has no dedicated authentication/account recovery UI.
 - Provider detail currently shows today/week totals, not the legacy tabs or month/cost/token-type/model breakdown.
-- QML uses percentage progress and a scale transition rather than the legacy Home level label and Poké Ball reveal.
-- Shop and Bag still use native confirmation dialogs; inline confirmations and explanations for every disabled action remain planned.
+- Home shows absolute progression and a level label. Routine data refreshes preserve the companion animation instead of replaying its reveal.
+- Shop and Bag use matching in-app confirmation modals, including a stronger warning before replacing an active Shiny companion. Explanations for every disabled action remain planned.
 - See [ROADMAP.md](ROADMAP.md) for completed QML restoration work and the separate P1–P3 backlog.
 
 - Antigravity's protobuf-in-SQLite reader is not ported yet.
 - Kiro's Windows database location is probed across likely AppData layouts because its local layout has changed between releases; `KIRO_CLI_HOME` is the authoritative override.
 - Codex fork/replay dedup is simplified versus upstream's deep parent-rollout reconciliation. Normal `token_count` snapshots are deduplicated, but pathological fork histories may differ slightly.
 - Provider incident banners and in-app self-updater are not included yet.
-- Full UI translation is not yet ported; the configured language currently applies to Pokémon names.
+- The interface supports English, Spanish and Galician; other upstream interface languages are not yet available.
 - Virtual-desktop behavior is intentionally scoped to the current Windows virtual desktop; all of its monitors are supported, including negative coordinates and mixed-DPI layouts.
 
 ## Tests

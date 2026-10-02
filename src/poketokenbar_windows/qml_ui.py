@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from bisect import bisect_right
 from calendar import monthrange
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
@@ -8,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QDate, QEvent, Property, QObject, QRect, QSettings, Qt, QTimer, QUrl, Signal, Slot, QLocale
-from PySide6.QtGui import QCloseEvent, QGuiApplication
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QMainWindow
 
@@ -50,6 +51,7 @@ from .notifications import (
 )
 from .localization import (
     LANGUAGE_OPTIONS,
+    localized_nature,
     normalize_language,
     text as translated_text,
     ui_strings,
@@ -64,7 +66,7 @@ from .pokemon import (
     PokeAPIClient,
     egg_price,
 )
-from .state import GameState, companion_progress_percent, owned_representative_options
+from .state import GameState, companion_progress_percent, owned_representative_options, plan_rare_candy_use
 from .usage import PROVIDER_LABELS, scan_month_history
 from .updates import UpdateState
 from .version import build_identity
@@ -153,6 +155,7 @@ class QmlViewModel(QObject):
     exportRequested = Signal()
     importRequested = Signal()
     useItemRequested = Signal(str)
+    useRareCandyRequested = Signal(int)
     buyItemRequested = Signal(str)
     buyEggRequested = Signal(object)
     windowMinimizeRequested = Signal()
@@ -170,12 +173,17 @@ class QmlViewModel(QObject):
         self.settings = settings
         self.api = api
         self._dex_page = 0
+        self._dex_page_starts = [0]
+        self._dex_filtered_rows: list[dict[str, Any]] = []
+        self._dex_columns = 3
+        self._dex_grid_height = 400
         self._current_month = ""
         self._selected_month = ""
         self._month_history: dict[str, tuple[list[int], list[float]]] | None = None
         self._pending_previous = False
         self._snapshot = None
         self._dex_filter = "all"
+        self._dex_shiny_only = False
         self._dex_shiny_by_species: dict[int, bool] = {}
         language = normalize_language(state.language)
         identity = build_identity()
@@ -193,8 +201,8 @@ class QmlViewModel(QObject):
             "toastText": "",
             "toastShiny": False,
             "revealActive": False,
-            "companionName": "Pokémon Egg",
-            "companionSubtitle": "Preparing your companion",
+            "companionName": translated_text(language, "pokemon_egg"),
+            "companionSubtitle": translated_text(language, "waiting_to_hatch", tier=""),
             "companionProgress": 0,
             "companionProgressText": f"0 / {compact_tokens(EGG_HATCH_THRESHOLD)}",
             "companionLevelText": "Lv. 0",
@@ -225,6 +233,8 @@ class QmlViewModel(QObject):
             "dexPage": 1,
             "dexPageCount": 1,
             "dexFilter": "all",
+            "dexShinyOnly": False,
+            "dexShinyCount": 0,
             "catches": [],
             "shopItems": [],
             "rareCandyCount": 0,
@@ -232,6 +242,7 @@ class QmlViewModel(QObject):
             "mintCount": 0,
             "shinyCharmActive": False,
             "hasActiveCompanion": state.mon is not None,
+            "activeCompanionShiny": bool(state.mon and state.mon.is_shiny),
             "representativeFollowsCurrent": state.representative_species_id is None,
             "refreshMinutes": int(settings.value("refresh_minutes", 5)),
             "petEnabled": settings_bool(settings.value(PET_ENABLED_KEY, False), False),
@@ -283,6 +294,7 @@ class QmlViewModel(QObject):
             "theme": str(settings.value("theme", "system")),
             "darkMode": False,
             "windowMaximized": False,
+            "windowActive": False,
             "language": language,
             "strings": ui_strings(language),
             "languageOptions": list(LANGUAGE_OPTIONS),
@@ -291,6 +303,7 @@ class QmlViewModel(QObject):
         self._refresh_dark_mode()
         self._render_state()
 
+    windowActive = Property(bool, lambda self: self._values["windowActive"], notify=dataChanged)
     loading = Property(bool, lambda self: self._values["loading"], notify=dataChanged)
     refreshEnabled = Property(
         bool, lambda self: self._values["refreshEnabled"], notify=dataChanged
@@ -391,6 +404,12 @@ class QmlViewModel(QObject):
     dexFilter = Property(
         str, lambda self: self._values["dexFilter"], notify=dataChanged
     )
+    dexShinyOnly = Property(
+        bool, lambda self: self._values["dexShinyOnly"], notify=dataChanged
+    )
+    dexShinyCount = Property(
+        int, lambda self: self._values["dexShinyCount"], notify=dataChanged
+    )
     catches = Property(
         "QVariantList", lambda self: self._values["catches"], notify=dataChanged
     )
@@ -411,6 +430,9 @@ class QmlViewModel(QObject):
     )
     hasActiveCompanion = Property(
         bool, lambda self: self._values["hasActiveCompanion"], notify=dataChanged
+    )
+    activeCompanionShiny = Property(
+        bool, lambda self: self._values["activeCompanionShiny"], notify=dataChanged
     )
     representativeFollowsCurrent = Property(
         bool, lambda self: self._values["representativeFollowsCurrent"], notify=dataChanged
@@ -524,7 +546,10 @@ class QmlViewModel(QObject):
         level_prefix = "Lv." if language == "en" else "Nv."
         if state.mon is None:
             name = self._tr("pokemon_egg")
-            tier = f" · {state.egg_tier.title()}+" if state.egg_tier else ""
+            tier = (
+                " · " + self._tr("egg_tier_guarantee", rarity=self._tr(state.egg_tier))
+                if state.egg_tier else ""
+            )
             subtitle = self._tr("waiting_to_hatch", tier=tier)
             evolution_text = self._tr("hatch_hint")
             value = state.egg_usage
@@ -535,8 +560,14 @@ class QmlViewModel(QObject):
             name = self.api.localized_name(mon.current_id, language)
             shiny = "✨ " if mon.is_shiny else ""
             rarity = self._tr(mon.rarity)
+            nature = localized_nature(mon.nature, language)
+            nature_label = (
+                f"{self._tr('nature').capitalize()} {nature.lower()}"
+                if language in {"gl", "es"}
+                else f"{nature} {self._tr('nature')}"
+            )
             subtitle = (
-                f"{shiny}{rarity} · {mon.nature} {self._tr('nature')} · "
+                f"{shiny}{rarity} · {nature_label} · "
                 f"{self._tr('stage')} {mon.stage_index + 1}/{len(mon.path_ids)}"
             )
             value = mon.used_at_stage
@@ -564,6 +595,7 @@ class QmlViewModel(QObject):
             mintCount=int(state.inventory.get("mint", 0)),
             shinyCharmActive=state.shiny_charm_active,
             hasActiveCompanion=state.mon is not None,
+            activeCompanionShiny=bool(state.mon and state.mon.is_shiny),
             representativeFollowsCurrent=state.representative_species_id is None,
             language=language,
             strings=ui_strings(language),
@@ -614,6 +646,9 @@ class QmlViewModel(QObject):
         mon = self.state.mon
         return bool(
             mon
+            and self.state.catches
+            and catch is self.state.catches[-1]
+            and catch.released_at is None
             and catch.base_id == mon.base_id
             and catch.path_ids == mon.path_ids
             and catch.nature == mon.nature
@@ -634,9 +669,11 @@ class QmlViewModel(QObject):
                         "speciesId": int(species_id),
                         "rarity": catch.rarity,
                         "hasShiny": False,
+                        "hasNormal": False,
                     },
                 )
                 row["hasShiny"] = bool(row["hasShiny"] or catch.is_shiny)
+                row["hasNormal"] = bool(row["hasNormal"] or not catch.is_shiny)
 
         selected_id = self.state.representative_species_id
         selected_shiny = bool(self.state.representative_is_shiny)
@@ -647,6 +684,7 @@ class QmlViewModel(QObject):
         rows: list[dict[str, Any]] = []
         for species_id, row in sorted(species.items()):
             has_shiny = bool(row["hasShiny"])
+            has_normal = bool(row["hasNormal"])
             default_shiny = has_shiny
             if selected_id == species_id:
                 default_shiny = selected_shiny
@@ -655,6 +693,8 @@ class QmlViewModel(QObject):
             show_shiny = self._dex_shiny_by_species.get(species_id, default_shiny)
             if not has_shiny:
                 show_shiny = False
+            elif not has_normal:
+                show_shiny = True
             is_representative = (
                 selected_id == species_id and selected_shiny == show_shiny
             ) or (
@@ -684,7 +724,29 @@ class QmlViewModel(QObject):
             )
         return rows
 
-    def _refresh_dex_rows(self) -> None:
+    @staticmethod
+    def _pokedex_page_starts(
+        rows: list[dict[str, Any]], columns: int, grid_height: int
+    ) -> list[int]:
+        starts = [0]
+        index = 0
+        while index < len(rows):
+            occupied = 0
+            first_row = True
+            while index < len(rows):
+                row = rows[index : index + columns]
+                row_height = 174
+                needed = row_height + (0 if first_row else 7)
+                if not first_row and occupied + needed > grid_height:
+                    break
+                occupied += needed
+                index += len(row)
+                first_row = False
+            if index < len(rows):
+                starts.append(index)
+        return starts
+
+    def _refresh_dex_rows(self, *, anchor: int | None = None) -> None:
         all_rows = self._all_dex_rows()
         rarity_order = ("common", "uncommon", "rare", "legendary")
         counts = {
@@ -700,31 +762,52 @@ class QmlViewModel(QObject):
         valid_filters = {item["key"] for item in filters}
         if self._dex_filter not in valid_filters:
             self._dex_filter = "all"
-        filtered = (
+        rarity_rows = (
             all_rows
             if self._dex_filter == "all"
             else [row for row in all_rows if row["rarity"] == self._dex_filter]
         )
-        page_size = 24
-        page_count = max(1, (len(filtered) + page_size - 1) // page_size)
+        shiny_count = sum(bool(row["hasShiny"]) for row in rarity_rows)
+        filtered = (
+            [row for row in rarity_rows if row["hasShiny"]]
+            if self._dex_shiny_only else rarity_rows
+        )
+        self._dex_filtered_rows = filtered
+        self._dex_page_starts = self._pokedex_page_starts(
+            filtered, self._dex_columns, self._dex_grid_height
+        )
+        page_count = len(self._dex_page_starts)
+        if anchor is not None:
+            self._dex_page = bisect_right(self._dex_page_starts, anchor) - 1
         self._dex_page = max(0, min(self._dex_page, page_count - 1))
-        start = self._dex_page * page_size
+        start = self._dex_page_starts[self._dex_page]
+        end = (
+            self._dex_page_starts[self._dex_page + 1]
+            if self._dex_page + 1 < page_count
+            else len(filtered)
+        )
         rarity_summary = " · ".join(
             f"{self._tr(rarity)} {counts[rarity]}"
             for rarity in rarity_order
             if counts[rarity]
         )
         summary = self._tr("species_count", count=len(all_rows))
-        if rarity_summary:
+        if self._dex_shiny_only:
+            summary = self._tr("shiny_species_count", count=len(filtered))
+            if self._dex_filter != "all":
+                summary += f" · {self._tr(self._dex_filter)}"
+        elif rarity_summary:
             summary += f" · {rarity_summary}"
         self._values.update(
-            dexEntries=filtered[start : start + page_size],
+            dexEntries=filtered[start:end],
             dexBrowseEntries=filtered,
             dexFilters=filters,
             dexSummary=summary,
             dexPage=self._dex_page + 1,
             dexPageCount=page_count,
             dexFilter=self._dex_filter,
+            dexShinyOnly=self._dex_shiny_only,
+            dexShinyCount=shiny_count,
         )
 
     def _catch_rows(self) -> list[dict[str, Any]]:
@@ -732,10 +815,20 @@ class QmlViewModel(QObject):
         for catch in reversed(self.state.catches):
             path_ids = catch.path_ids or [catch.species_id]
             is_current = self._is_current_catch(catch)
+            is_released = catch.released_at is not None
             owned_index = len(path_ids) - 1
             if is_current and self.state.mon is not None:
                 owned_index = min(len(path_ids) - 1, self.state.mon.stage_index)
             display_id = path_ids[owned_index]
+            if is_released:
+                description = self._tr("released_catch_description")
+            elif is_current and self.state.mon is not None and owned_index == len(path_ids) - 1:
+                remaining = max(0, self.state.mon.stage_threshold - self.state.mon.used_at_stage)
+                description = self._tr("final_stage_in_progress", remaining=compact_tokens(remaining))
+            elif owned_index == len(path_ids) - 1:
+                description = self._tr("fully_evolved")
+            else:
+                description = self._tr("have_only_stage", stage=owned_index + 1, total=len(path_ids))
             stages = []
             for index, species_id in enumerate(path_ids):
                 owned = index <= owned_index
@@ -767,18 +860,13 @@ class QmlViewModel(QObject):
                 {
                     "name": self.api.localized_name(display_id, self._language()),
                     "number": f"#{display_id:03d}",
-                    "meta": f"{self._tr(catch.rarity)} · {catch.nature} · {catch.caught_at[:10]}",
+                    "meta": f"{self._tr(catch.rarity)} · {localized_nature(catch.nature, self._language())} · {catch.caught_at[:10]}",
                     "shiny": bool(catch.is_shiny),
                     "current": is_current,
-                    "description": (
-                        self._tr("fully_evolved")
-                        if owned_index == len(path_ids) - 1
-                        else self._tr(
-                            "have_only_stage",
-                            stage=owned_index + 1,
-                            total=len(path_ids),
-                        )
-                    ),
+                    "released": is_released,
+                    "statusLabel": self._tr("raising" if is_current else "catch_released")
+                    if (is_current or is_released) else "",
+                    "description": description,
                     "stages": stages,
                     "sprite": _file_url(
                         self.api.sprite_path(
@@ -812,7 +900,8 @@ class QmlViewModel(QObject):
                     "icon": icon,
                     "eggTier": key if kind == "egg" else "",
                     "price": compact_tokens(price),
-                    "enabled": wallet >= price and not owned,
+                    "enabled": wallet >= price and not owned and not (kind == "egg" and self.state.mon is None),
+                    "disabledReason": self._tr("egg_requires_companion") if kind == "egg" and self.state.mon is None else "",
                     "owned": owned,
                 }
             )
@@ -1082,7 +1171,9 @@ class QmlViewModel(QObject):
 
     def set_refresh_enabled(self, enabled: bool) -> None:
         self._values["refreshEnabled"] = bool(enabled)
-        self._values["loading"] = not enabled and not self._values["providers"]
+        # Loading belongs to the initial render, not to the presence of usage rows.
+        if enabled:
+            self._values["loading"] = False
         self.dataChanged.emit()
 
     def set_status(self, text: str) -> None:
@@ -1131,7 +1222,8 @@ class QmlViewModel(QObject):
 
     @Slot()
     def requestRefresh(self) -> None:
-        self.refreshRequested.emit()
+        if self.refreshEnabled:
+            self.refreshRequested.emit()
 
     @Slot()
     def minimizeWindow(self) -> None:
@@ -1222,18 +1314,65 @@ class QmlViewModel(QObject):
         self._refresh_dex_rows()
         self.dataChanged.emit()
 
+    @Slot(bool)
+    def setDexShinyOnly(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if self._dex_shiny_only == enabled:
+            return
+        self._dex_shiny_only = enabled
+        if enabled:
+            # Opening the shiny view shows every owned shiny appearance first.
+            for row in self._all_dex_rows():
+                if row["hasShiny"]:
+                    self._dex_shiny_by_species[row["speciesId"]] = True
+        self._dex_page = 0
+        self._refresh_dex_rows()
+        self.dataChanged.emit()
+
     @Slot(int)
     def moveDexPage(self, delta: int) -> None:
-        self._dex_page += int(delta)
+        target = max(0, min(self._dex_page + int(delta), len(self._dex_page_starts) - 1))
+        if target == self._dex_page:
+            return
+        self._dex_page = target
+        self._refresh_dex_rows()
+        self.dataChanged.emit()
+
+    @Slot(int, int)
+    def setDexViewport(self, columns: int, grid_height: int) -> None:
+        columns = max(1, min(4, int(columns)))
+        grid_height = max(210, int(grid_height))
+        if (columns, grid_height) == (self._dex_columns, self._dex_grid_height):
+            return
+        anchor = self._dex_page_starts[self._dex_page]
+        old_starts = self._dex_page_starts
+        self._dex_columns = columns
+        self._dex_grid_height = grid_height
+        if self._pokedex_page_starts(self._dex_filtered_rows, columns, grid_height) == old_starts:
+            return
+        self._refresh_dex_rows(anchor=anchor)
+        self.dataChanged.emit()
+
+    @Slot(int, result=int)
+    def dexPageForIndex(self, index: int) -> int:
+        return max(1, bisect_right(self._dex_page_starts, int(index)))
+
+    @Slot(int)
+    def showDexIndex(self, index: int) -> None:
+        target = self.dexPageForIndex(index) - 1
+        if target == self._dex_page:
+            return
+        self._dex_page = target
         self._refresh_dex_rows()
         self.dataChanged.emit()
 
     @Slot(int)
     def toggleDexVariant(self, species_id: int) -> None:
         species_id = int(species_id)
-        self._dex_shiny_by_species[species_id] = not self._dex_shiny_by_species.get(
-            species_id, True
-        )
+        row = next((item for item in self._all_dex_rows() if item["speciesId"] == species_id), None)
+        if row is None or not (row["hasNormal"] and row["hasShiny"]):
+            return
+        self._dex_shiny_by_species[species_id] = not row["showShiny"]
         self._refresh_dex_rows()
         self.dataChanged.emit()
 
@@ -1280,6 +1419,50 @@ class QmlViewModel(QObject):
     def useItem(self, key: str) -> None:
         self.useItemRequested.emit(key)
 
+    @Slot(result="QVariantMap")
+    def candyOptions(self) -> dict[str, Any]:
+        plan = plan_rare_candy_use(self.state, 1)
+        mon = self.state.mon
+        if plan is None or mon is None:
+            return {}
+        return {
+            "maxCount": plan.max_count,
+            "nextCount": plan.next_count,
+            "completionCount": plan.completion_count,
+            "name": self.api.localized_name(mon.current_id, self._language()),
+            "progress": f"{compact_tokens(mon.used_at_stage)} / {compact_tokens(mon.stage_threshold)}",
+            "available": self.state.inventory.get("rare_candy", 0),
+        }
+
+    @Slot(int, result="QVariantMap")
+    def candyPreview(self, count: int) -> dict[str, Any]:
+        plan = plan_rare_candy_use(self.state, count)
+        if plan is None or self.state.mon is None:
+            return {}
+        if plan.graduated:
+            outcome = self._tr("candy_preview_completion")
+        elif plan.result_id != self.state.mon.current_id:
+            outcome = self._tr(
+                "candy_preview_evolution",
+                name=self.api.localized_name(plan.result_id, self._language()),
+            )
+        else:
+            outcome = self._tr("candy_preview_progress")
+        return {
+            "count": plan.count,
+            "amount": compact_tokens(plan.count * RARE_CANDY_XP),
+            "outcome": outcome,
+            "discarded": (
+                self._tr("candy_discarded_xp", amount=compact_tokens(plan.discarded_xp))
+                if plan.discarded_xp else ""
+            ),
+        }
+
+    @Slot(int)
+    def useRareCandy(self, count: int) -> None:
+        if count > 0:
+            self.useRareCandyRequested.emit(count)
+
     @Slot(str, str)
     def buy(self, kind: str, key: str) -> None:
         if kind == "egg":
@@ -1315,6 +1498,7 @@ class QmlMainWindow(QMainWindow):
     export_requested = Signal()
     import_requested = Signal()
     use_item_requested = Signal(str)
+    use_rare_candy_requested = Signal(int)
     buy_item_requested = Signal(str)
     buy_egg_requested = Signal(object)
 
@@ -1341,6 +1525,13 @@ class QmlMainWindow(QMainWindow):
         self._month_history_timer.setInterval(100)
         self._month_history_timer.timeout.connect(self._poll_month_history)
         self.view_model = QmlViewModel(state, settings, api)
+        self._companion_subject = (
+            (state.mon.current_id, state.mon.is_shiny) if state.mon else (None, False)
+        )
+        self._companion_reveal_timer = QTimer(self)
+        self._companion_reveal_timer.setSingleShot(True)
+        self._companion_reveal_timer.setInterval(1200)
+        self._companion_reveal_timer.timeout.connect(lambda: self.view_model.set_reveal(False))
         self.view_model.refreshRequested.connect(self.refresh_requested)
         self.view_model.monthHistoryRequested.connect(self._load_month_history)
         self.view_model.petVisibilityChanged.connect(self.pet_visibility_changed)
@@ -1351,6 +1542,7 @@ class QmlMainWindow(QMainWindow):
         self.view_model.exportRequested.connect(self.export_requested)
         self.view_model.importRequested.connect(self.import_requested)
         self.view_model.useItemRequested.connect(self.use_item_requested)
+        self.view_model.useRareCandyRequested.connect(self.use_rare_candy_requested)
         self.view_model.buyItemRequested.connect(self.buy_item_requested)
         self.view_model.buyEggRequested.connect(self.buy_egg_requested)
         self.view_model.windowMinimizeRequested.connect(self.showMinimized)
@@ -1368,6 +1560,19 @@ class QmlMainWindow(QMainWindow):
             details = "\n".join(error.toString() for error in self.quick.errors())
             raise RuntimeError(f"Could not load the QML interface:\n{details}")
         self.setCentralWidget(self.quick)
+        self._refresh_shortcut = QShortcut(QKeySequence("F5"), self.quick)
+        self._refresh_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._refresh_shortcut.activated.connect(self._refresh_from_shortcut)
+        self._previous_dex_shortcut = QShortcut(QKeySequence("Left"), self.quick)
+        self._previous_dex_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._previous_dex_shortcut.activated.connect(lambda: self._navigate_dex_shortcut(-1))
+        self._next_dex_shortcut = QShortcut(QKeySequence("Right"), self.quick)
+        self._next_dex_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._next_dex_shortcut.activated.connect(lambda: self._navigate_dex_shortcut(1))
+        root = self.quick.rootObject()
+        root.currentPageChanged.connect(self._sync_dex_shortcuts)
+        root.collectionModeChanged.connect(self._sync_dex_shortcuts)
+        self._sync_dex_shortcuts()
         self.statusBar().hide()
         self.windows_snap_enabled = _enable_windows_snap(int(self.winId()))
         self._restore_window_geometry()
@@ -1384,6 +1589,31 @@ class QmlMainWindow(QMainWindow):
         self.buy_egg_btn = _ButtonProxy(parent=self)
         self.buy_uncommon_egg_btn = _ButtonProxy(parent=self)
         self.buy_rare_egg_btn = _ButtonProxy(parent=self)
+
+    def _refresh_from_shortcut(self) -> None:
+        if self.view_model.refreshEnabled:
+            self.view_model.requestRefresh()
+
+    def _sync_dex_shortcuts(self) -> None:
+        root = self.quick.rootObject()
+        enabled = (
+            root is not None
+            and root.property("currentPage") == 1
+            and root.property("collectionMode") == "dex"
+        )
+        self._previous_dex_shortcut.setEnabled(enabled)
+        self._next_dex_shortcut.setEnabled(enabled)
+
+    def _navigate_dex_shortcut(self, direction: int) -> None:
+        root = self.quick.rootObject()
+        if root is None or root.property("currentPage") != 1:
+            return
+        if root.property("collectionMode") != "dex":
+            return
+        popup = root.findChild(QObject, "useItemPopup")
+        if popup is not None and popup.property("visible"):
+            return
+        root.navigateDex(direction)
 
     def _load_month_history(self) -> None:
         if self._month_history_future is not None:
@@ -1526,6 +1756,8 @@ class QmlMainWindow(QMainWindow):
             and bool(event.oldState() & Qt.WindowState.WindowMaximized)
         )
         super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and hasattr(self, "view_model"):
+            self.view_model._set("windowActive", self.isActiveWindow())
         if event.type() == QEvent.Type.WindowStateChange:
             if was_maximized and not self.isMaximized() and not self.isMinimized():
                 normal = QRect(self._last_normal_rect)
@@ -1534,9 +1766,18 @@ class QmlMainWindow(QMainWindow):
 
     def set_state(self, state: GameState) -> None:
         self.view_model.set_state(state)
+        self._sync_companion_reveal()
 
     def render(self, result: Any) -> None:
         self.view_model.render(result)
+        self._sync_companion_reveal()
+
+    def _sync_companion_reveal(self) -> None:
+        mon = self.view_model.state.mon
+        subject = (mon.current_id, mon.is_shiny) if mon else (None, False)
+        if subject != self._companion_subject:
+            self._companion_subject = subject
+            self.start_companion_reveal(None, is_egg=mon is None)
 
     def sync_floating_pet_settings(
         self, *, enabled: bool | None = None, size: int | None = None
@@ -1558,9 +1799,8 @@ class QmlMainWindow(QMainWindow):
         ball_path: Path | None = None,
     ) -> None:
         del sprite_path, is_egg, ball_path
-        self.view_model.set_reveal(False)
-        QTimer.singleShot(0, lambda: self.view_model.set_reveal(True))
-        QTimer.singleShot(1200, lambda: self.view_model.set_reveal(False))
+        self.view_model.set_reveal(True)
+        self._companion_reveal_timer.start()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._geometry_timer.stop()

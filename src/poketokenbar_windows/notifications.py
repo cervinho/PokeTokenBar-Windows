@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from .localization import text as translated_text
 from .models import ProviderLimits
 
 
@@ -162,15 +163,25 @@ class CompanionNotification:
     use_sprite_icon: bool = False
 
 
-def companion_notification(event: str, display_name: str) -> CompanionNotification | None:
+def companion_notification(
+    event: str, display_name: str, language: str = "en"
+) -> CompanionNotification | None:
     if event.startswith("hatched:"):
-        return CompanionNotification("Pokemon hatched!", display_name, use_sprite_icon=True)
+        return CompanionNotification(
+            translated_text(language, "hatched_notification"), display_name, use_sprite_icon=True
+        )
     if event.startswith("evolved:"):
-        return CompanionNotification("Evolution!", display_name)
+        return CompanionNotification(translated_text(language, "evolved_notification"), display_name)
     if event.startswith("graduated:"):
-        return CompanionNotification("Pokemon graduated!", "A new egg is ready.")
+        return CompanionNotification(
+            translated_text(language, "graduated_notification"),
+            translated_text(language, "new_egg_notification"),
+        )
     if event.startswith("candy:"):
         parts = event.split(":", 3)
         count = parts[1] if len(parts) > 1 else "1"
-        return CompanionNotification("Rare Candy earned!", f"You earned {count} Rare Candy.")
+        return CompanionNotification(
+            translated_text(language, "candy_notification"),
+            translated_text(language, "candy_notification_body", count=count),
+        )
     return None

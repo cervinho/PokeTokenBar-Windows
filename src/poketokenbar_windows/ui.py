@@ -102,7 +102,7 @@ from .floating_pet import (
     FloatingPetController,
 )
 from .limits import fetch_all_limits
-from .localization import localize_surface, text as translated_text
+from .localization import localized_nature, localize_surface, text as translated_text
 from .models import ProviderLimits, UsageSnapshot
 from .notifications import (
     BANKED_RESET_NOTIFICATIONS_KEY,
@@ -2156,6 +2156,9 @@ class TrayController(QObject):
     def _wire_shop_buttons(self) -> None:
         if isinstance(self.window, QmlMainWindow):
             self.window.use_item_requested.connect(self._use_item)
+            self.window.use_rare_candy_requested.connect(
+                lambda count: self._use_item("rare_candy", count)
+            )
             self.window.buy_item_requested.connect(self._buy_item)
             self.window.buy_egg_requested.connect(self._buy_egg)
             return
@@ -2550,13 +2553,16 @@ class TrayController(QObject):
         for event in result.events:
             if event.startswith("hatched:"):
                 shiny = bool(result.state.mon and result.state.mon.is_shiny)
-                self.window.celebrate(f"{result.display_name} hatched!", shiny=shiny)
+                self.window.celebrate(
+                    translated_text(result.state.language, "hatched_toast", name=result.display_name),
+                    shiny=shiny,
+                )
             elif event.startswith("evolved:"):
                 self.window.celebrate(
-                    f"Your companion evolved into {result.display_name}!"
+                    translated_text(result.state.language, "evolved_toast", name=result.display_name)
                 )
             elif event.startswith("graduated:"):
-                self.window.celebrate("Your companion graduated! A new egg is ready.")
+                self.window.celebrate(translated_text(result.state.language, "graduated_toast"))
         limit_alerts, self.limit_alert_tiers = evaluate_limit_alerts(
             result.limits,
             self.limit_alert_tiers,
@@ -2631,7 +2637,7 @@ class TrayController(QObject):
         self._schedule_qa_capture()
         if self.companion_notifications_enabled:
             for event in result.events:
-                notification = companion_notification(event, result.display_name)
+                notification = companion_notification(event, result.display_name, result.state.language)
                 if notification is None:
                     continue
                 if notification.use_sprite_icon:
@@ -2733,13 +2739,26 @@ class TrayController(QObject):
             )
             return False
         message_keys = {
+            "Purchased": "purchased",
+            "Fresh egg ready": "fresh_egg_ready",
+            "No Pokemon to release": "egg_requires_companion",
+            "Egg unavailable": "egg_unavailable",
+            "Not enough tokens": "not_enough_tokens",
+            "Shiny Charm is already active": "shiny_charm_already_active",
+            "Unknown item": "unknown_item",
+            "Passive items cannot be used": "passive_item",
             "Rare Candy used": "rare_candy_used",
+            "Rare Candy unavailable": "no_pokemon_for_candy",
             "Nature changed": "nature_changed",
             "Item not in bag": "item_not_in_bag",
             "No Pokemon to use a Mint on": "no_pokemon_for_mint",
             "No Pokemon to use a Rare Candy on": "no_pokemon_for_candy",
         }
-        if message in message_keys:
+        if message.startswith("Rare Candy used:"):
+            message = translated_text(
+                self.state.language, "rare_candies_used", count=message.partition(":")[2]
+            )
+        elif message in message_keys:
             message = translated_text(self.state.language, message_keys[message])
         if not ok:
             QMessageBox.information(self.window, "PokeTokenBar", message)
@@ -2753,15 +2772,16 @@ class TrayController(QObject):
 
     def _buy_item(self, item: str) -> None:
         labels = {"rare_candy": "Rare Candy", "mint": "Mint", "shiny_charm": "Shiny Charm"}
-        if QMessageBox.question(
-            self.window,
-            "Confirm purchase",
-            f"Buy {labels.get(item, item)}?",
-        ) != QMessageBox.StandardButton.Yes:
-            return
+        if not isinstance(self.window, QmlMainWindow):
+            if QMessageBox.question(
+                self.window,
+                "Confirm purchase",
+                f"Buy {labels.get(item, item)}?",
+            ) != QMessageBox.StandardButton.Yes:
+                return
         self._mutate_state(lambda state: buy_item(state, item))
 
-    def _use_item(self, item: str) -> None:
+    def _use_item(self, item: str, count: int = 1) -> None:
         labels = {"rare_candy": "Rare Candy", "mint": "Mint"}
         if not isinstance(self.window, QmlMainWindow):
             if QMessageBox.question(
@@ -2774,13 +2794,14 @@ class TrayController(QObject):
                 return
         old_nature = self.state.mon.nature if self.state.mon else None
         self._mutate_state(
-            lambda state: use_item(state, item, self.api),
+            lambda state: use_item(state, item, self.api, count=count),
             refresh=item == "rare_candy",
         )
         if item == "mint" and self.state.mon and self.state.mon.nature != old_nature:
             self.window.action_feedback.setText(
                 "✓ " + translated_text(
-                    self.state.language, "new_nature", nature=self.state.mon.nature
+                    self.state.language, "new_nature",
+                    nature=localized_nature(self.state.mon.nature, self.state.language)
                 )
             )
 
@@ -2788,17 +2809,18 @@ class TrayController(QObject):
         tier_label = (tier or "normal").title()
         warning = f"Buy a {tier_label} Egg?"
         if self.state.mon is not None:
-            warning += "\n\nThis replaces your active companion and its unfinished catch."
+            warning += "\n\nThe companion stays in your Pokédex as released, without completing its growth."
             if self.state.mon.is_shiny:
                 warning += "\n\n⚠ Your active companion is Shiny. This cannot be undone."
-        if QMessageBox.warning(
-            self.window,
-            "Confirm fresh egg",
-            warning,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        ) != QMessageBox.StandardButton.Yes:
-            return
+        if not isinstance(self.window, QmlMainWindow):
+            if QMessageBox.warning(
+                self.window,
+                "Confirm fresh egg",
+                warning,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            ) != QMessageBox.StandardButton.Yes:
+                return
         if self._mutate_state(lambda state: buy_egg(state, tier)):
             self.refresh()
 

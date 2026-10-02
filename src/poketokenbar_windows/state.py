@@ -58,6 +58,7 @@ class CatchRecord:
     is_shiny: bool
     nature: str
     caught_at: str
+    released_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -101,16 +102,17 @@ class RepresentativeSubject:
 
 def _current_catch(state: GameState) -> CatchRecord | None:
     mon = state.mon
-    if mon is None:
+    if mon is None or not state.catches:
         return None
-    for catch in reversed(state.catches):
-        if (
-            catch.base_id == mon.base_id
-            and catch.path_ids == mon.path_ids
-            and catch.nature == mon.nature
-            and catch.is_shiny == mon.is_shiny
-        ):
-            return catch
+    catch = state.catches[-1]
+    if (
+        catch.released_at is None
+        and catch.base_id == mon.base_id
+        and catch.path_ids == mon.path_ids
+        and catch.nature == mon.nature
+        and catch.is_shiny == mon.is_shiny
+    ):
+        return catch
     return None
 
 
@@ -430,7 +432,9 @@ def usage_delta(
     return delta
 
 
-def apply_usage(state: GameState, delta: int, api: PokeAPIClient) -> list[str]:
+def apply_usage(
+    state: GameState, delta: int, api: PokeAPIClient, *, carry_after_graduation: bool = True
+) -> list[str]:
     events: list[str] = []
     remaining = max(0, delta)
     while remaining > 0:
@@ -441,8 +445,18 @@ def apply_usage(state: GameState, delta: int, api: PokeAPIClient) -> list[str]:
             remaining -= take
             if state.egg_usage < EGG_HATCH_THRESHOLD:
                 break
-            hatch = api.hatch(minimum_rarity=state.egg_tier, shiny_charm=state.shiny_charm_active)
-            has_growth_boost = any(catch.base_id == hatch.base_id for catch in state.catches)
+            completed_finals = {
+                (catch.base_id, (catch.path_ids or [catch.species_id])[-1])
+                for catch in state.catches if catch.released_at is None
+            }
+            hatch = api.hatch(
+                minimum_rarity=state.egg_tier,
+                shiny_charm=state.shiny_charm_active,
+                completed_finals=completed_finals,
+            )
+            has_growth_boost = any(
+                base_id == hatch.base_id for base_id, _ in completed_finals
+            )
             state.mon = MonState(
                 base_id=hatch.base_id,
                 path_ids=hatch.path_ids,
@@ -483,12 +497,63 @@ def apply_usage(state: GameState, delta: int, api: PokeAPIClient) -> list[str]:
             events.append(f"evolved:{mon.current_id}")
             continue
 
-        # Final form completed: archive it and start a fresh egg; overflow carries.
+        # Final form completed: archive it and start a fresh egg. Actual usage carries
+        # onward, while Rare Candy discards the excess after graduation.
         events.append(f"graduated:{mon.current_id}")
         state.mon = None
         state.egg_usage = 0
         state.egg_tier = None
+        if not carry_after_graduation:
+            break
     return events
+
+
+@dataclass(frozen=True, slots=True)
+class RareCandyPlan:
+    count: int
+    max_count: int
+    next_count: int
+    completion_count: int
+    result_id: int
+    graduated: bool
+    discarded_xp: int
+
+
+def plan_rare_candy_use(state: GameState, requested: int) -> RareCandyPlan | None:
+    mon = state.mon
+    stock = max(0, state.inventory.get("rare_candy", 0))
+    if mon is None or not mon.path_ids or stock == 0 or requested <= 0:
+        return None
+    stage = min(max(0, mon.stage_index), len(mon.path_ids) - 1)
+    costs = [
+        phase_threshold(mon.rarity, len(mon.path_ids), index, 2 if mon.has_growth_boost else 1)
+        for index in range(stage, len(mon.path_ids))
+    ]
+    completion_count = max(0, sum(costs) - mon.used_at_stage + RARE_CANDY_XP - 1) // RARE_CANDY_XP
+    max_count = min(stock, completion_count)
+    if max_count == 0:
+        return None
+    count = min(requested, max_count)
+    next_count = (
+        max(1, (max(0, costs[0] - mon.used_at_stage) + RARE_CANDY_XP - 1) // RARE_CANDY_XP)
+        if stage < len(mon.path_ids) - 1 else 0
+    )
+    remaining = mon.used_at_stage + count * RARE_CANDY_XP
+    result_stage = stage
+    graduated = False
+    for cost in costs:
+        if remaining < cost:
+            break
+        remaining -= cost
+        if result_stage == len(mon.path_ids) - 1:
+            graduated = True
+            break
+        result_stage += 1
+    return RareCandyPlan(
+        count=count, max_count=max_count, next_count=next_count,
+        completion_count=completion_count, result_id=mon.path_ids[result_stage],
+        graduated=graduated, discarded_xp=remaining if graduated else 0,
+    )
 
 
 def buy_item(state: GameState, item: str) -> tuple[bool, str]:
@@ -505,15 +570,23 @@ def buy_item(state: GameState, item: str) -> tuple[bool, str]:
     return True, "Purchased"
 
 
-def use_item(state: GameState, item: str, api: PokeAPIClient) -> tuple[bool, str, list[str]]:
+def use_item(
+    state: GameState, item: str, api: PokeAPIClient, count: int = 1
+) -> tuple[bool, str, list[str]]:
     if state.inventory.get(item, 0) <= 0:
         return False, "Item not in bag", []
     if item == "rare_candy":
         if state.mon is None:
             return False, "No Pokemon to use a Rare Candy on", []
-        state.inventory[item] -= 1
-        events = apply_usage(state, RARE_CANDY_XP, api)
-        return True, "Rare Candy used", events
+        plan = plan_rare_candy_use(state, count)
+        if plan is None:
+            return False, "Rare Candy unavailable", []
+        state.inventory[item] -= plan.count
+        events = apply_usage(
+            state, plan.count * RARE_CANDY_XP, api, carry_after_graduation=False
+        )
+        message = "Rare Candy used" if plan.count == 1 else f"Rare Candy used:{plan.count}"
+        return True, message, events
     if item == "mint":
         if state.mon is None:
             return False, "No Pokemon to use a Mint on", []
@@ -528,16 +601,28 @@ def use_item(state: GameState, item: str, api: PokeAPIClient) -> tuple[bool, str
 
 
 def buy_egg(state: GameState, tier: str | None) -> tuple[bool, str]:
+    if tier not in (None, "uncommon", "rare"):
+        return False, "Egg unavailable"
+    if state.mon is None:
+        return False, "No Pokemon to release"
     price = egg_price(tier)
     if state.wallet < price:
         return False, "Not enough tokens"
+    mon = state.mon
     state.spent_tokens += price
-    if state.mon is not None and state.catches:
-        # The upstream Pokédex synthesizes the currently-raised Pokemon and only
-        # persists it on graduation. Buying a fresh egg discards that active catch.
-        last = state.catches[-1]
-        if last.base_id == state.mon.base_id and last.path_ids == state.mon.path_ids:
-            state.catches.pop()
+    current = _current_catch(state)
+    released_at = datetime.now().astimezone().isoformat()
+    reached_path = (mon.path_ids or [mon.base_id])[:max(1, mon.stage_index + 1)]
+    # A release keeps reached forms in the Pokédex but never counts as graduation.
+    if current is None:
+        state.catches.append(CatchRecord(
+            mon.current_id, mon.base_id, reached_path, mon.rarity,
+            mon.is_shiny, mon.nature, released_at, released_at,
+        ))
+    else:
+        current.path_ids = reached_path
+        current.species_id = mon.current_id
+        current.released_at = released_at
     state.mon = None
     state.egg_usage = 0
     state.egg_tier = tier

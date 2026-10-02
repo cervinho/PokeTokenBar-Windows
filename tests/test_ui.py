@@ -245,6 +245,30 @@ class UITests(unittest.TestCase):
         self.assertEqual(controller.state.inventory["rare_candy"], 0)
         self.assertEqual(window.view_model.feedbackText, "✓ Caramelo Raro usado")
         controller.refresh.assert_called_once_with()
+        controller.state.inventory["mint"] = 1
+        with patch("random.choice", return_value="Lax"):
+            controller._use_item("mint")
+        self.assertEqual(controller.state.mon.nature, "Lax")
+        self.assertEqual(window.view_model.feedbackText, "✓ Nova natureza: Laxa")
+
+    def test_qml_batch_candy_controller_spends_selected_count_and_reports_it(self):
+        state = GameState(
+            mon=MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy"),
+            inventory={"rare_candy": 10}, language="gl",
+        )
+        window = QmlMainWindow(state, self.settings, FakeUIAPI())
+        self.addCleanup(window.deleteLater)
+        controller = TrayController.__new__(TrayController)
+        controller.state_lock = threading.Lock()
+        controller.state = state
+        controller.store = Mock()
+        controller.window = window
+        controller.api = FakeUIAPI()
+        controller.refresh = Mock()
+        controller._use_item("rare_candy", 3)
+        self.assertEqual(controller.state.inventory["rare_candy"], 7)
+        self.assertEqual(window.view_model.feedbackText, "✓ Usáronse 3 Caramelos Raros")
+        controller.refresh.assert_called_once_with()
 
     def test_month_trend_and_repeat_badge_fit_home_layout(self):
         state = GameState(mon=MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy", True), language="gl")
@@ -551,8 +575,10 @@ class UITests(unittest.TestCase):
         self.assertTrue(model.dexEntries[0]["representative"])
         self.assertFalse(model.dexEntries[0]["followingCurrent"])
 
+        self.assertFalse(model.dexEntries[0]["hasNormal"])
         model.toggleDexVariant(1)
-        self.assertFalse(model.dexEntries[0]["representative"])
+        self.assertTrue(model.dexEntries[0]["showShiny"])
+        self.assertTrue(model.dexEntries[0]["representative"])
 
     def test_qml_dex_supports_paging_rarity_filters_and_shiny_variants(self):
         catches = [
@@ -569,19 +595,43 @@ class UITests(unittest.TestCase):
         ]
         model = QmlViewModel(GameState(catches=catches), self.settings, FakeUIAPI())
 
-        self.assertEqual(model.dexPageCount, 2)
-        self.assertEqual(len(model.dexEntries), 24)
+        self.assertGreater(model.dexPageCount, 1)
         self.assertIn("26 species", model.dexSummary)
+        seen = []
+        for _ in range(model.dexPageCount):
+            seen.extend(row["speciesId"] for row in model.dexEntries)
+            model.moveDexPage(1)
+        self.assertEqual(seen, list(range(1, 27)))
 
         model.setDexFilter("rare")
         self.assertEqual(model.dexPageCount, 1)
+        self.assertEqual(len(model.dexEntries), 2)
+        self.assertEqual(model.dexShinyCount, 1)
+        model.setDexShinyOnly(True)
+        self.assertTrue(model.dexShinyOnly)
+        self.assertEqual([row["speciesId"] for row in model.dexEntries], [25])
+        self.assertTrue(model.dexEntries[0]["showShiny"])
+        model.setDexFilter("all")
+        self.assertTrue(model.dexShinyOnly)
+        self.assertEqual([row["speciesId"] for row in model.dexEntries], [25])
+        model.setDexShinyOnly(False)
+        model.setDexFilter("rare")
         self.assertEqual(len(model.dexEntries), 2)
         shiny = next(row for row in model.dexEntries if row["speciesId"] == 25)
         self.assertTrue(shiny["showShiny"])
 
         model.toggleDexVariant(25)
         shiny = next(row for row in model.dexEntries if row["speciesId"] == 25)
-        self.assertFalse(shiny["showShiny"])
+        self.assertTrue(shiny["showShiny"])
+        self.assertFalse(shiny["hasNormal"])
+
+        model.state.catches.append(CatchRecord(25, 25, [25], "rare", False, "Hardy", "2026-09-01"))
+        model.set_state(model.state)
+        shiny = next(row for row in model.dexEntries if row["speciesId"] == 25)
+        self.assertTrue(shiny["hasNormal"])
+        model.toggleDexVariant(25)
+        normal = next(row for row in model.dexEntries if row["speciesId"] == 25)
+        self.assertFalse(normal["showShiny"])
 
     def test_qml_catch_history_exposes_current_and_future_evolution_stages(self):
         state = GameState(
@@ -602,6 +652,59 @@ class UITests(unittest.TestCase):
             model.catches[0]["description"],
             "Only stage 2 of 3",
         )
+
+    def test_capture_status_distinguishes_final_stage_release_and_completion(self):
+        current = CatchRecord(405, 403, [403, 404, 405], "common", False, "Hardy", "2026-09-28")
+        released = CatchRecord(404, 403, [403, 404], "common", True, "Hardy", "2026-09-27", "2026-09-28")
+        completed = CatchRecord(405, 403, [403, 404, 405], "common", False, "Hardy", "2026-09-26")
+        state = GameState(
+            mon=MonState(403, [403, 404, 405], 2, 50_000_000, "common", False, "Hardy"),
+            catches=[completed, released, current], language="gl",
+        )
+        model = QmlViewModel(state, self.settings, FakeUIAPI())
+        self.assertEqual([row["statusLabel"] for row in model.catches],
+                         ["EN CRIANZA", "LIBERADO", ""])
+        self.assertIn("faltan", model.catches[0]["description"])
+        self.assertEqual(model.catches[1]["description"], "Liberado antes de completar a crianza")
+
+    def test_repeated_catches_retain_individual_release_status_and_dex_progress(self):
+        completed = CatchRecord(405, 403, [403, 404, 405], "common", False, "Hardy", "2026-09-01")
+        released_final = CatchRecord(405, 403, [403, 404, 405], "common", True, "Hardy", "2026-09-02", "2026-09-02")
+        released_first = CatchRecord(403, 403, [403], "common", False, "Hardy", "2026-09-03", "2026-09-03")
+        state = GameState(catches=[completed, released_final, released_first], language="gl")
+        model = QmlViewModel(state, self.settings, FakeUIAPI())
+        self.assertEqual([row["statusLabel"] for row in model.catches], ["LIBERADO", "LIBERADO", ""])
+        self.assertEqual([row["number"] for row in model.catches], ["#403", "#405", "#405"])
+        self.assertEqual([row["speciesId"] for row in model.dexBrowseEntries], [403, 404, 405])
+        self.assertTrue(model.dexBrowseEntries[-1]["hasShiny"])
+        self.assertTrue(model.dexBrowseEntries[-1]["hasNormal"])
+
+    def test_candy_modal_options_respect_stock_and_localized_preview(self):
+        state = GameState(
+            mon=MonState(403, [403, 404, 405], 1, 40_000_000, "common", False, "Hardy"),
+            inventory={"rare_candy": 10}, language="gl",
+        )
+        model = QmlViewModel(state, self.settings, FakeUIAPI())
+        self.assertEqual(model.candyOptions()["maxCount"], 6)
+        self.assertEqual(model.candyOptions()["nextCount"], 3)
+        self.assertEqual(model.candyOptions()["completionCount"], 6)
+        self.assertIn("evoluciona", model.candyPreview(3)["outcome"])
+        self.assertIn("15M", model.candyPreview(6)["discarded"])
+        state.inventory["rare_candy"] = 2
+        model.set_state(state)
+        self.assertEqual(model.candyOptions()["maxCount"], 2)
+        self.assertEqual(model.candyPreview(99)["count"], 2)
+        state.mon = None
+        model.set_state(state)
+        self.assertEqual(model.candyOptions(), {})
+
+    def test_shop_eggs_are_visible_but_disabled_during_incubation(self):
+        model = QmlViewModel(GameState(egg_usage=2_000_000, used_since_install=10_000_000_000, language="gl"),
+                             self.settings, FakeUIAPI())
+        eggs = [row for row in model.shopItems if row["kind"] == "egg"]
+        self.assertEqual(len(eggs), 3)
+        self.assertTrue(all(not row["enabled"] for row in eggs))
+        self.assertTrue(all(row["disabledReason"] == "Eclosiona o ovo antes de mercar outro." for row in eggs))
 
     def test_bag_and_new_notification_preferences_are_localized_and_persisted(self):
         state = GameState(language="gl", inventory={"rare_candy": 28, "mint": 2})
@@ -668,6 +771,31 @@ class UITests(unittest.TestCase):
         self.assertEqual(window.progress_percent_label.text(), "Lv. 50")
         self.assertFalse(window.progress.isTextVisible())
         self.assertEqual(window.progress.height(), 12)
+
+    def test_qml_shop_purchase_uses_the_in_app_confirmation(self):
+        state = GameState(
+            mon=MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy"),
+            used_since_install=10_000_000_000,
+            language="gl",
+        )
+        window = QmlMainWindow(state, self.settings, FakeUIAPI())
+        self.addCleanup(window.deleteLater)
+        controller = TrayController.__new__(TrayController)
+        controller.state_lock = threading.Lock()
+        controller.state = state
+        controller.store = Mock()
+        controller.window = window
+        controller.refresh = Mock()
+        with patch.object(QMessageBox, "question", side_effect=AssertionError("native dialog")):
+            with patch.object(QMessageBox, "warning", side_effect=AssertionError("native dialog")):
+                controller._buy_item("rare_candy")
+                self.assertEqual(window.view_model.feedbackText, "✓ Compra realizada")
+                controller._buy_egg("rare")
+                self.assertEqual(window.view_model.feedbackText, "✓ Ovo novo preparado")
+        self.assertEqual(controller.state.inventory["rare_candy"], 1)
+        self.assertIsNone(controller.state.mon)
+        self.assertEqual(controller.state.spent_tokens, 4_500_000_000)
+        controller.refresh.assert_called_once_with()
 
     def test_using_rare_candy_requests_a_full_refresh_without_an_evolution(self):
         controller = TrayController.__new__(TrayController)

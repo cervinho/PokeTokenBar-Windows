@@ -9,10 +9,10 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QObject, QSettings, Qt
+from PySide6.QtCore import QMetaObject, QObject, QPoint, QPointF, QSettings, Qt
 from PySide6.QtGui import QAccessible, QFont, QFontDatabase
-from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtTest import QSignalSpy, QTest
+from PySide6.QtWidgets import QApplication, QWidget
 
 from poketokenbar_windows.models import (
     LimitWindow,
@@ -228,23 +228,39 @@ class QmlKeyboardTests(unittest.TestCase):
                     with self.subTest(width=width, theme=theme, page=page):
                         self.root.setProperty("currentPage", page)
                         self.root.forceActiveFocus()
-                        QTest.qWait(10)
-                        expected = list(self.controls())
-                        visited = []
-                        for _ in range(len(expected)):
+                        QTest.qWait(300 if page == 1 else 10)
+                        self.window.grab()
+                        self.app.processEvents()
+                        if page == 1:
+                            for _ in range(12):
+                                rendered_cards = sum(
+                                    self.name(item).startswith("View Pokemon ")
+                                    for item in self.controls()
+                                )
+                                if rendered_cards == len(self.window.view_model.dexEntries):
+                                    break
+                                QTest.qWait(20)
+                                self.window.grab()
+                                self.app.processEvents()
+                        expected_names = [self.name(item) for item in self.controls()]
+                        visited_names = []
+                        visited_ids = set()
+                        for _ in range(len(expected_names)):
                             self.key(Qt.Key_Tab)
                             item = self.window.quick.quickWindow().activeFocusItem()
                             self.assertIsNotNone(item)
-                            self.assertNotIn(item, visited, "Tab cycled before reaching every control")
-                            visited.append(item)
-                            self.assertTrue(self.name(item), item.metaObject().className())
+                            self.assertNotIn(id(item), visited_ids, "Tab cycled before reaching every control")
+                            visited_ids.add(id(item))
+                            name = self.name(item)
+                            visited_names.append(name)
+                            self.assertTrue(name, item.metaObject().className())
                             point = item.mapToItem(self.root, 0, 0)
                             self.assertGreaterEqual(point.x(), -1)
                             self.assertGreaterEqual(point.y(), -1)
                             self.assertLessEqual(point.x() + item.width(), self.root.width() + 1)
                             self.assertLessEqual(point.y() + item.height(), self.root.height() + 1)
-                        self.assertCountEqual(visited, expected)
-                        for _ in range(len(expected)):
+                        self.assertCountEqual(visited_names, expected_names)
+                        for _ in range(len(expected_names)):
                             self.key(Qt.Key_Tab, Qt.ShiftModifier)
                             item = self.window.quick.quickWindow().activeFocusItem()
                             point = item.mapToItem(self.root, 0, 0)
@@ -524,11 +540,92 @@ class QmlKeyboardTests(unittest.TestCase):
         self.assertIsNotNone(self.root.findChild(QObject, "collectionToolbar"))
         self.root.setProperty("currentPage", 1)
         QTest.qWait(20)
-        filter_row = self.root.findChild(QObject, "dexFilterRow")
         page_position = self.root.findChild(QObject, "dexPagePosition")
-        page_point = page_position.mapToItem(filter_row, 0, 0)
-        self.assertGreaterEqual(page_point.y(), -1)
-        self.assertLessEqual(page_point.y() + page_position.height(), filter_row.height() + 1)
+        pagination = self.root.findChild(QObject, "dexPagination")
+        grid = self.root.findChild(QObject, "dexGrid")
+        previous = self.root.findChild(QObject, "dexPreviousPage")
+        next_page = self.root.findChild(QObject, "dexNextPage")
+        grid_bottom = grid.mapToItem(self.root, 0, grid.height()).y()
+        page_top = page_position.mapToItem(self.root, 0, 0).y()
+        self.assertGreaterEqual(page_top, grid_bottom - 1)
+        self.assertLessEqual(page_top + page_position.height(),
+                             pagination.mapToItem(self.root, 0, pagination.height()).y() + 1)
+        previous_right = previous.mapToItem(pagination, previous.width(), 0).x()
+        next_left = next_page.mapToItem(pagination, 0, 0).x()
+        label_center = page_position.mapToItem(pagination, page_position.width() / 2, 0).x()
+        self.assertAlmostEqual(label_center, (previous_right + next_left) / 2, delta=2)
+        self.assertEqual(page_position.property("font").pixelSize(), 13)
+
+    def test_refresh_keeps_companion_visible_with_or_without_usage_providers(self):
+        self.window.activateWindow()
+        self.root.setProperty("currentPage", 0)
+        QTest.qWait(20)
+        animation = self.root.findChild(QObject, "companionAnimation")
+        reveal = self.root.findChild(QObject, "companionReveal")
+        requests = []
+
+        def begin_refresh():
+            requests.append("refresh")
+            self.window.refresh_button.setEnabled(False)
+            self.window.refresh_status.setText("Updating…")
+
+        self.window.view_model.refreshRequested.connect(begin_refresh)
+        for providers in ({}, {"codex": ProviderUsage("codex", today_tokens=10)}):
+            result = RefreshResult(
+                UsageSnapshot(providers=providers, scanned_at=datetime.now(timezone.utc)),
+                {}, {}, self.state, [], None, "Pokemon 2",
+            )
+            self.window.render(result)
+            source = animation.property("source")
+            changes = QSignalSpy(self.window.view_model.revealChanged)
+            for trigger in ("automatic", "button", "F5"):
+                with self.subTest(providers=bool(providers), trigger=trigger):
+                    self.window.render(result)
+                    count = len(requests)
+                    if trigger == "automatic":
+                        begin_refresh()
+                    elif trigger == "button":
+                        self.activate("Refresh")
+                    else:
+                        self.key(Qt.Key_F5)
+                    self.assertEqual(len(requests), count + 1)
+                    self.assertFalse(self.window.view_model.refreshEnabled)
+                    self.assertTrue(animation.isVisible())
+                    self.assertTrue(animation.property("playing"))
+                    self.assertFalse(reveal.isVisible())
+                    self.assertEqual(animation.property("source"), source)
+                    self.window.render(result)
+                    self.assertTrue(animation.isVisible())
+                    self.assertFalse(reveal.isVisible())
+                    self.assertEqual(changes.count(), 0)
+
+    def test_companion_reveal_follows_visual_changes_and_survives_unchanged_refresh(self):
+        self.root.setProperty("currentPage", 0)
+        self.state.mon.used_at_stage += 1
+        self.state.mon.nature = "Jolly"
+        self.window.set_state(self.state)
+        self.assertFalse(self.window.view_model.revealActive)
+        self.state.mon.stage_index += 1
+        self.window.render(RefreshResult(UsageSnapshot(), {}, {}, self.state, ["evolved:3"], None, "Pokemon 3"))
+        QTest.qWait(10)
+        self.assertTrue(self.window.view_model.revealActive)
+        changes = QSignalSpy(self.window.view_model.revealChanged)
+        self.window.render(RefreshResult(UsageSnapshot(), {}, {}, self.state, [], None, "Pokemon 3"))
+        self.assertEqual(changes.count(), 0)
+        QTest.qWait(1250)
+        self.assertFalse(self.window.view_model.revealActive)
+        self.assertTrue(self.root.findChild(QObject, "companionAnimation").isVisible())
+        for subject in (None, MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy"),
+                        MonState(1, [1, 2, 3], 0, 0, "common", True, "Hardy")):
+            self.state.mon = subject
+            self.window.set_state(self.state)
+            QTest.qWait(10)
+            self.assertTrue(self.window.view_model.revealActive)
+            QTest.qWait(1250)
+            self.assertFalse(self.window.view_model.revealActive)
+        self.state.language = "gl"
+        self.window.set_state(self.state)
+        self.assertFalse(self.window.view_model.revealActive)
 
     def test_companion_uses_animation_and_reveal_pokeball(self):
         animation = self.root.findChild(QObject, "companionAnimation")
@@ -558,12 +655,188 @@ class QmlKeyboardTests(unittest.TestCase):
         self.activate("Next →")
         self.assertEqual(self.root.property("selectedDexIndex"), 1)
 
-        self.root.setProperty("selectedDexIndex", 23)
+        first_page_size = len(self.window.view_model.dexEntries)
+        self.root.setProperty("selectedDexIndex", first_page_size - 1)
         self.activate("Next →")
-        self.assertEqual(self.root.property("selectedDexIndex"), 24)
+        self.assertEqual(self.root.property("selectedDexIndex"), first_page_size)
         self.activate("Back to Pokédex")
         self.assertEqual(self.root.property("selectedDexIndex"), -1)
         self.assertEqual(self.window.view_model.dexPage, 2)
+
+    def test_shiny_icon_switches_only_owned_variants_without_growing_cards(self):
+        self.root.setProperty("currentPage", 1)
+        QTest.qWait(20)
+        shiny = self.window.view_model.dexEntries[0]
+        self.assertTrue(shiny["hasShiny"])
+        self.assertFalse(shiny["hasNormal"])
+        toggles = [item for item in self.controls_tree(self.root)
+                   if item.objectName() == "dexShinyToggle" and item.isVisible()]
+        self.assertEqual(len(toggles), 3)
+        self.assertFalse(next(item for item in toggles if self.name(item) == "Only shiny Pokemon 1 has been caught").isEnabled())
+
+        self.state.catches.append(CatchRecord(
+            1, 1, [1, 2, 3], "common", False, "Hardy", "2026-09-02"
+        ))
+        self.window.view_model.set_state(self.state)
+        QTest.qWait(40)
+        card_heights = [item.height() for item in self.controls_tree(self.root)
+                        if item.objectName() == "dexCard" and item.isVisible()]
+        self.assertTrue(card_heights)
+        self.assertEqual(len(set(card_heights)), 1)
+        self.activate("Show normal Pokemon 1")
+        self.assertFalse(self.window.view_model.dexEntries[0]["showShiny"])
+        self.activate("View Pokemon 1")
+        self.assertEqual(self.root.property("selectedDexIndex"), 0)
+        self.activate("Show shiny Pokemon 1")
+        self.assertTrue(self.window.view_model.dexEntries[0]["showShiny"])
+
+    def test_shiny_filter_combines_with_rarity_without_changing_it(self):
+        self.root.setProperty("currentPage", 1)
+        QTest.qWait(20)
+        self.assertEqual(self.window.view_model.dexShinyCount, 3)
+        self.activate("Show species with a caught shiny appearance")
+        self.assertTrue(self.window.view_model.dexShinyOnly)
+        self.assertEqual([row["speciesId"] for row in self.window.view_model.dexBrowseEntries], [1, 2, 3])
+        self.assertTrue(all(row["showShiny"] for row in self.window.view_model.dexBrowseEntries))
+        self.activate("Filter by Common")
+        self.assertEqual(self.window.view_model.dexFilter, "common")
+        self.assertTrue(self.window.view_model.dexShinyOnly)
+        self.activate("Show species with a caught shiny appearance")
+        self.assertFalse(self.window.view_model.dexShinyOnly)
+        self.assertEqual(self.window.view_model.dexFilter, "common")
+
+    def test_shiny_filter_can_be_cleared_after_switching_to_rarity_with_no_shinies(self):
+        for catch in self.state.catches:
+            if 5 <= catch.base_id <= 10:
+                catch.rarity = "rare"
+        self.window.view_model.set_state(self.state)
+        self.root.setProperty("currentPage", 1)
+        self.activate("Filter by Common")
+        self.activate("Show species with a caught shiny appearance")
+        self.assertEqual(len(self.window.view_model.dexBrowseEntries), 3)
+        self.activate("Filter by Rare")
+        self.assertEqual(self.window.view_model.dexShinyCount, 0)
+        self.assertEqual(self.window.view_model.dexBrowseEntries, [])
+        self.activate("Show species with a caught shiny appearance")
+        self.assertFalse(self.window.view_model.dexShinyOnly)
+        self.assertEqual(self.window.view_model.dexFilter, "rare")
+        self.assertEqual(len(self.window.view_model.dexBrowseEntries), 6)
+
+    def test_all_rarity_chips_and_shiny_fit_one_line_at_minimum_width(self):
+        rarities = ("common", "uncommon", "rare", "legendary")
+        self.state.language = "gl"
+        for index, catch in enumerate(self.state.catches):
+            catch.rarity = rarities[index % len(rarities)]
+        self.window.view_model.set_state(self.state)
+        self.window.resize(420, 640)
+        self.root.setProperty("currentPage", 1)
+        QTest.qWait(80)
+        self.window.grab()
+        filter_row = self.root.findChild(QObject, "dexFilterRow")
+        shiny_chip = self.root.findChild(QObject, "shinyFilterChip")
+        shiny_position = shiny_chip.mapToItem(filter_row, 0, 0)
+        self.assertEqual(len(self.window.view_model.dexFilters), 5)
+        self.assertLessEqual(filter_row.height(), 28)
+        self.assertGreater(shiny_position.x(), 0)
+        self.assertGreaterEqual(shiny_position.y(), 0)
+        self.assertLessEqual(shiny_position.y() + shiny_chip.height(), filter_row.height())
+        self.assertLessEqual(shiny_position.x() + shiny_chip.width(), filter_row.width())
+        self.assertGreaterEqual(
+            shiny_chip.property("implicitWidth") - shiny_chip.property("contentItem").property("implicitWidth"),
+            16,
+        )
+
+    def test_back_to_pokedex_keeps_species_after_detail_resize(self):
+        self.root.setProperty("currentPage", 1)
+        self.window.resize(820, 1000)
+        for _ in range(4):
+            QTest.qWait(40)
+            self.window.grab()
+        self.root.openDex(18)
+        self.window.resize(520, 640)
+        for _ in range(4):
+            QTest.qWait(40)
+            self.window.grab()
+        self.root.closeDex()
+        for _ in range(4):
+            QTest.qWait(40)
+            self.window.grab()
+        self.assertIn(
+            18, [row["speciesId"] for row in self.window.view_model.dexEntries]
+        )
+        page = self.root.findChild(QObject, "collectionPage")
+        self.assertLessEqual(page.property("contentHeight"), page.property("availableHeight") + 1)
+        previous_page = self.window.view_model.dexPage
+        self.window.activateWindow()
+        self.key(Qt.Key_Right)
+        self.assertEqual(self.window.view_model.dexPage, previous_page + 1)
+
+    def test_natures_follow_display_language_without_changing_saved_state(self):
+        for language, subtitle, catch_label in (
+            ("gl", "Natureza forte", "Forte"),
+            ("es", "Naturaleza fuerte", "Fuerte"),
+            ("en", "Hardy nature", "Hardy"),
+        ):
+            self.state.language = language
+            self.window.render(RefreshResult(
+                UsageSnapshot(scanned_at=datetime.now(timezone.utc)),
+                {}, {}, self.state, [], None, "Pokemon 2",
+            ))
+            self.assertIn(subtitle, self.window.view_model.companionSubtitle)
+            self.assertIn(catch_label, self.window.view_model.catches[0]["meta"])
+            self.assertEqual(self.state.mon.nature, "Hardy")
+            self.assertEqual(self.state.catches[0].nature, "Hardy")
+
+    def test_middle_click_autoscrolls_captures_and_stops_on_second_click(self):
+        self.root.setProperty("currentPage", 1)
+        self.root.setProperty("collectionMode", "catches")
+        QTest.qWait(60)
+        page = self.root.findChild(QObject, "collectionPage")
+        auto_scroll = page.findChild(QObject, "pageAutoScroll")
+        flickable = page.property("contentItem")
+        self.assertGreater(flickable.property("contentHeight"), flickable.property("height"))
+        start = page.mapToScene(QPointF(page.width() / 2, 150)).toPoint()
+        lower = QPoint(start.x(), min(self.window.quick.height() - 20, start.y() + 170))
+        QTest.mouseMove(self.window.quick, start)
+        QTest.mouseClick(self.window.quick, Qt.MiddleButton, pos=start)
+        self.assertTrue(auto_scroll.property("scrolling"))
+        QTest.mouseMove(self.window.quick, lower)
+        QTest.qWait(180)
+        self.assertGreater(flickable.property("contentY"), 0)
+        QTest.mouseClick(self.window.quick, Qt.MiddleButton, pos=lower)
+        self.assertFalse(auto_scroll.property("scrolling"))
+
+    def test_middle_click_uses_the_nested_limit_scroll(self):
+        page = self.root.findChild(QObject, "homePage")
+        page_scroll = page.findChild(QObject, "pageAutoScroll")
+        providers = self.root.findChild(QObject, "limitsContent")
+        list_scroll = providers.findChild(QObject, "limitsContentAutoScroll")
+        self.assertGreater(providers.property("contentHeight"), providers.property("height"))
+        start = providers.mapToScene(QPointF(providers.width() / 2, providers.height() / 2)).toPoint()
+        lower = QPoint(start.x(), start.y() + 30)
+        QTest.mouseMove(self.window.quick, start)
+        QTest.mouseClick(self.window.quick, Qt.MiddleButton, pos=start)
+        self.assertTrue(list_scroll.property("scrolling"))
+        self.assertFalse(page_scroll.property("scrolling"))
+        QTest.mouseMove(self.window.quick, lower)
+        QTest.qWait(180)
+        self.assertGreater(providers.property("contentY"), 0)
+
+    def test_egg_guarantee_uses_the_display_language(self):
+        self.state.mon = None
+        for language, tier, expected in (
+            ("gl", "rare", "Agardando para eclosionar · Raro ou mellor"),
+            ("gl", "uncommon", "Agardando para eclosionar · Pouco común ou mellor"),
+            ("es", "rare", "Esperando para eclosionar · Raro o mejor"),
+            ("en", "rare", "Waiting to hatch · Rare or better"),
+        ):
+            self.state.language = language
+            self.state.egg_tier = tier
+            self.window.render(RefreshResult(
+                UsageSnapshot(scanned_at=datetime.now(timezone.utc)),
+                {}, {}, self.state, [], None, "Pokemon Egg",
+            ))
+            self.assertEqual(self.window.view_model.companionSubtitle, expected)
 
     def test_catch_log_renders_evolution_arrows(self):
         state = GameState(
@@ -597,11 +870,187 @@ class QmlKeyboardTests(unittest.TestCase):
         ]
         self.assertTrue(any(arrow.isVisible() for arrow in arrows))
 
+    def test_f5_refreshes_only_while_refresh_is_enabled(self):
+        self.window.activateWindow()
+        QTest.qWait(20)
+        requests = []
+        def begin_refresh():
+            requests.append(True)
+            self.window.view_model.set_refresh_enabled(False)
+
+        self.window.refresh_requested.connect(begin_refresh)
+        self.root.setProperty("currentPage", 0)
+        self.key(Qt.Key_F5)
+        self.key(Qt.Key_F5)
+        self.assertEqual(len(requests), 1)
+        self.assertFalse(self.window.view_model.refreshEnabled)
+
+    def test_tooltips_use_the_panel_focus_and_refresh_hint(self):
+        self.window.activateWindow()
+        QTest.qWait(20)
+        refresh_tip = self.root.findChild(QObject, "refreshTooltip")
+        self.assertIn("F5", refresh_tip.property("text"))
+        tip = self.root.findChild(QObject, "navigationTooltip-0")
+        tip.setProperty("delay", 0)
+        tip.setProperty("requestedVisible", True)
+        QTest.qWait(20)
+        self.assertTrue(self.window.view_model.windowActive)
+        self.assertTrue(tip.property("visible"))
+        self.assertLess(tip.property("width"), 320)
+        refresh_tip.setProperty("delay", 0)
+        refresh_tip.setProperty("requestedVisible", True)
+        QTest.qWait(20)
+        self.assertFalse(tip.property("visible"))
+        self.assertTrue(refresh_tip.property("visible"))
+        refresh_tip.setProperty("requestedVisible", False)
+        tip.setProperty("requestedVisible", False)
+        tip.setProperty("requestedVisible", True)
+        QTest.qWait(20)
+        self.assertTrue(tip.property("visible"))
+        other = QWidget()
+        self.addCleanup(other.close)
+        other.show()
+        other.activateWindow()
+        QTest.qWait(30)
+        self.assertFalse(self.window.view_model.windowActive)
+        self.assertFalse(tip.property("visible"))
+
+    def test_mouse_focus_does_not_look_like_keyboard_focus(self):
+        self.window.activateWindow()
+        home = self.control("Home")
+        point = home.mapToItem(self.root, home.width() / 2, home.height() / 2)
+        QTest.mouseClick(self.window.quick, Qt.LeftButton, pos=point.toPoint())
+        self.assertTrue(home.property("activeFocus"))
+        self.assertFalse(home.property("visualFocus"))
+        self.key(Qt.Key_Tab)
+        collection = self.control("Collection")
+        self.assertTrue(collection.property("visualFocus"))
+
+    def test_candy_modal_quick_targets_preview_without_spending_until_confirmation(self):
+        self.state.inventory["rare_candy"] = 10
+        self.state.mon.used_at_stage = 40_000_000
+        self.window.set_state(self.state)
+        self.root.setProperty("currentPage", 2)
+        popup = self.root.findChild(QObject, "candyPopup")
+        self.activate("Rare Candy: Use")
+        self.app.processEvents()
+        self.assertTrue(popup.property("visible"))
+        self.assertEqual(popup.property("options")["nextCount"], 3)
+        self.assertEqual(popup.property("options")["completionCount"], 6)
+        spy = QSignalSpy(self.window.use_rare_candy_requested)
+        next_button = popup.findChild(QObject, "candyNextQuick")
+        finish_button = popup.findChild(QObject, "candyFinishQuick")
+        self.assertTrue(QMetaObject.invokeMethod(next_button, "click"))
+        self.assertEqual(popup.property("selectedCount"), 3)
+        self.assertIn("evolves", popup.property("preview")["outcome"])
+        self.assertTrue(QMetaObject.invokeMethod(finish_button, "click"))
+        self.assertEqual(popup.property("selectedCount"), 6)
+        self.assertIn("15M", popup.property("preview")["discarded"])
+        self.assertEqual(self.state.inventory["rare_candy"], 10)
+        self.assertEqual(spy.count(), 0)
+        self.assertTrue(QMetaObject.invokeMethod(popup.findChild(QObject, "candyConfirmButton"), "click"))
+        self.assertEqual(spy.count(), 1)
+        self.assertEqual(spy.at(0)[0], 6)
+
+    def test_shop_purchase_modal_confirms_items_and_warns_about_eggs(self):
+        self.root.setProperty("currentPage", 3)
+        QTest.qWait(80)
+        popup = self.root.findChild(QObject, "purchasePopup")
+        items = []
+        eggs = []
+        self.window.buy_item_requested.connect(items.append)
+        self.window.buy_egg_requested.connect(eggs.append)
+
+        def press_popup(label):
+            button = next(
+                item for item in self.controls(popup.property("contentItem"))
+                if self.name(item) == label
+            )
+            button.forceActiveFocus(Qt.TabFocusReason)
+            self.key(Qt.Key_Space)
+            QTest.qWait(20)
+
+        self.activate("Buy Rare Candy: 500M tokens")
+        self.assertTrue(popup.property("visible"))
+        question = popup.findChild(QObject, "actionQuestionText")
+        self.assertEqual(question.property("text"), "Buy Rare Candy for 500M tokens?")
+        self.assertEqual(items, [])
+        press_popup("Cancel")
+        self.assertFalse(popup.property("visible"))
+        self.assertEqual(items, [])
+
+        self.activate("Buy Rare Candy: 500M tokens")
+        press_popup("Buy item")
+        self.assertFalse(popup.property("visible"))
+        self.assertEqual(items, ["rare_candy"])
+
+        self.state.language = "gl"
+        self.state.mon.is_shiny = True
+        self.window.set_state(self.state)
+        self.activate("Mercar Ovo raro: 4B tokens")
+        detail = popup.findChild(QObject, "actionDetailText")
+        danger = popup.findChild(QObject, "actionDangerText")
+        self.assertEqual(question.property("text"), "Mercar Ovo raro por 4B tokens?")
+        self.assertTrue(detail.property("visible"))
+        self.assertIn("liberado", detail.property("text"))
+        self.assertTrue(danger.property("visible"))
+        self.assertIn("shiny", danger.property("text"))
+        self.assertGreater(popup.property("height"), 158)
+        self.assertEqual(eggs, [])
+        press_popup("Mercar ovo")
+        self.assertEqual(eggs, ["rare"])
+
+    def test_arrow_keys_navigate_pokedex_page_and_detail(self):
+        self.window.activateWindow()
+        QTest.qWait(20)
+        self.root.setProperty("currentPage", 1)
+        self.key(Qt.Key_Right)
+        self.assertEqual(self.window.view_model.dexPage, 2)
+        self.key(Qt.Key_Left)
+        self.assertEqual(self.window.view_model.dexPage, 1)
+        self.activate("View Pokemon 1")
+        self.key(Qt.Key_Right)
+        self.assertEqual(self.root.property("selectedDexIndex"), 1)
+        self.key(Qt.Key_Left)
+        self.assertEqual(self.root.property("selectedDexIndex"), 0)
+        self.root.setProperty("currentPage", 4)
+        self.key(Qt.Key_Right)
+        self.assertEqual(self.root.property("selectedDexIndex"), 0)
+
+    def test_pokedex_pages_fit_the_visible_grid_after_resize(self):
+        self.root.setProperty("currentPage", 1)
+        page = self.root.findChild(QObject, "collectionPage")
+        grid = self.root.findChild(QObject, "dexGrid")
+
+        def settle_layout():
+            for _ in range(4):
+                QTest.qWait(40)
+                self.window.grab()
+                self.app.processEvents()
+
+        self.window.resize(520, 640)
+        settle_layout()
+        compact_size = len(self.window.view_model.dexEntries)
+        self.assertGreater(self.window.view_model.dexPageCount, 1)
+        self.assertLessEqual(page.property("contentHeight"), page.property("availableHeight") + 1)
+        self.assertEqual(compact_size % grid.property("columns"), 0)
+
+        self.key(Qt.Key_Right)
+        anchored_species = self.window.view_model.dexEntries[0]["speciesId"]
+        self.window.resize(820, 1000)
+        settle_layout()
+        self.assertGreater(len(self.window.view_model.dexEntries), compact_size)
+        self.assertIn(
+            anchored_species,
+            [row["speciesId"] for row in self.window.view_model.dexEntries],
+        )
+        self.assertLessEqual(page.property("contentHeight"), page.property("availableHeight") + 1)
+
     def test_collection_can_be_paged_and_switched_using_keyboard(self):
         self.root.setProperty("currentPage", 1)
         self.app.processEvents()
-        self.activate("Show normal Pokemon 1")
-        self.assertFalse(self.window.view_model.dexEntries[0]["showShiny"])
+        self.assertTrue(self.window.view_model.dexEntries[0]["showShiny"])
+        self.assertFalse(self.window.view_model.dexEntries[0]["hasNormal"])
         self.activate("Next →")
         self.assertEqual(self.window.view_model.dexPage, 2)
         self.activate("← Previous")

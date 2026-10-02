@@ -310,14 +310,15 @@ class RepresentativePokemonTests(unittest.TestCase):
         state.representative_species_id = 999
         self.assertEqual(representative_subject(state).species_id, state.mon.current_id)
 
-    def test_fresh_egg_clears_representative_if_its_only_catch_is_discarded(self):
+    def test_fresh_egg_keeps_released_shiny_representative(self):
         state = self._state()
         state.used_since_install = 2_000_000_000
         self.assertTrue(set_representative(state, 25, True))
         ok, _ = buy_egg(state, None)
         self.assertTrue(ok)
-        self.assertIsNone(state.representative_species_id)
-        self.assertTrue(representative_subject(state).is_egg)
+        self.assertEqual(state.representative_species_id, 25)
+        self.assertTrue(representative_subject(state).is_shiny)
+        self.assertIsNotNone(state.catches[-1].released_at)
 
     def test_old_state_migrates_without_losing_game_fields(self):
         old = {

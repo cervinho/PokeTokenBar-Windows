@@ -94,9 +94,9 @@ Claude, Codex, Gemini, Antigravity, OpenCode, Hermes, Cursor, Grok, GitHub Copil
 | Detalle de consumo | **Parcial** | QML muestra hoy y semana por proveedor. No ofrece pestañas, mes/coste en el detalle, tipos de token ni desglose por modelo. |
 | Límites oficiales | **Parcial** | Claude y Codex, barras, reinicios, usado/restante, plan disponible y todas las ventanas recibidas funcionan, con refresco global desde Inicio. Faltan previsiones, filas de créditos de reinicio, estado de Luna cuando no llega en la respuesta y estados de autenticación/cuenta claros. |
 | Estados del servicio | **Pendiente** | No hay banners de incidencias del proveedor. |
-| Pokédex y capturas | **Hecho** | QML separa Pokédex y capturas, pagina de 24 en 24 y ofrece filtros/contadores por rareza, alternancia normal/Shiny obtenida y etapas de evolución con estados actual/obtenida/futura. Las futuras se muestran atenuadas y sin nombre. |
+| Pokédex y capturas | **Hecho** | QML separa Pokédex y capturas, pagina según el espacio visible sin desplazar la cuadrícula y ofrece filtros/contadores por rareza, alternancia normal/Shiny obtenida y etapas de evolución con estados actual/obtenida/futura. Las futuras se muestran atenuadas y sin nombre. |
 | Pokémon representante | **Hecho** | Se puede elegir una captura o volver a seguir al compañero activo; se refleja en bandeja y mascota. |
-| Bolsa y tienda | **Parcial** | Las operaciones y tarjetas funcionan. Las confirmaciones siguen usando diálogos Widgets; faltan motivos visibles en botones desactivados y el flujo QML no replica toda la respuesta contextual de upstream. |
+| Bolsa y tienda | **Parcial** | Las operaciones y tarjetas funcionan. Las confirmaciones de compra y uso comparten un modal QML, con aviso reforzado para sustituir un compañero Shiny. Faltan motivos visibles en botones desactivados y el flujo QML no replica toda la respuesta contextual de upstream. |
 | Ajustes generales | **Hecho** | Intervalo, nombres Pokémon, inicio con Windows, mascota, avisos, usado/restante, previsión, notificaciones, tema e importar/exportar. |
 | Ajustes avanzados ya soportados por backend | **Hecho** | QML expone límite en bandeja, umbrales warning/critical validados, tiempo restante/fecha y hora y mascota 48–192 px. |
 | Teclado y accesibilidad de controles | **Hecho** | Tab/Shift+Tab recorren las cinco páginas, con nombres accesibles, foco visible y desplazamiento automático al control enfocado. Probados temas claro/oscuro y ventana mínima/normal. |
@@ -125,7 +125,7 @@ Claude, Codex, Gemini, Antigravity, OpenCode, Hermes, Cursor, Grok, GitHub Copil
 ### P1 — mejoras de UI/UX con mayor impacto
 
 - [ ] Mostrar el motivo exacto bajo cada acción desactivada de Bolsa/Tienda, incluidos saldo insuficiente, objeto ya activo y compra de huevo bloqueada durante la fase huevo.
-- [ ] Reemplazar confirmaciones modales de compra/uso por confirmaciones inline; mantener una advertencia reforzada para descartar un Shiny.
+- [x] Unificar las confirmaciones de compra y uso en un modal QML; advertir al sustituir un compañero Shiny.
 - [ ] Navegar a Inicio después de comprar un huevo y mostrar allí la transición del nuevo compañero.
 - [ ] Añadir detalle por proveedor sin sobrecargar Inicio: hoy/semana/mes/coste, tipos de token y modelos.
 - [ ] Completar la presentación de límites con previsiones, créditos de reinicio, estado de Luna ausente y autenticación/cuenta obsoleta o caducada. P0 ya muestra el plan, todas las ventanas recibidas y el refresco global.

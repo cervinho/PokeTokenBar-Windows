@@ -62,6 +62,7 @@ from poketokenbar_windows.state import (
     apply_usage,
     buy_egg,
     companion_progress_percent,
+    plan_rare_candy_use,
     usage_delta,
     use_item,
 )
@@ -80,7 +81,7 @@ from poketokenbar_windows.windows import (
 
 
 class FakeAPI:
-    def hatch(self, minimum_rarity=None, shiny_charm=False):
+    def hatch(self, minimum_rarity=None, shiny_charm=False, completed_finals=None):
         return HatchResult(
             base_id=1,
             path_ids=[1, 2, 3],
@@ -291,6 +292,37 @@ class StateTests(unittest.TestCase):
         self.assertEqual(events, [])
         self.assertEqual(state.inventory["rare_candy"], 1)
 
+    def test_multiple_candies_carry_through_evolution_and_stop_at_graduation(self):
+        state = GameState(
+            mon=MonState(403, [403, 404, 405], 1, 40_000_000, "common", False, "Hardy"),
+            catches=[CatchRecord(404, 403, [403, 404, 405], "common", False, "Hardy", "2026-09-28")],
+            inventory={"rare_candy": 10},
+        )
+        plan = plan_rare_candy_use(state, 99)
+        self.assertIsNotNone(plan)
+        self.assertEqual((plan.count, plan.max_count, plan.next_count, plan.completion_count), (6, 6, 3, 6))
+        self.assertTrue(plan.graduated)
+        self.assertEqual(plan.discarded_xp, 15_000_000)
+        ok, _, events = use_item(state, "rare_candy", FakeAPI(), count=3)
+        self.assertTrue(ok)
+        self.assertEqual(events, ["evolved:405"])
+        self.assertEqual((state.mon.stage_index, state.mon.used_at_stage), (2, 90_000_000))
+        self.assertEqual(state.inventory["rare_candy"], 7)
+        ok, _, events = use_item(state, "rare_candy", FakeAPI(), count=99)
+        self.assertTrue(ok)
+        self.assertEqual(events, ["graduated:405"])
+        self.assertIsNone(state.mon)
+        self.assertEqual(state.egg_usage, 0)
+        self.assertEqual(state.inventory["rare_candy"], 4)
+
+    def test_candy_plan_requires_an_active_pokemon_and_available_stock(self):
+        self.assertIsNone(plan_rare_candy_use(GameState(inventory={"rare_candy": 5}), 3))
+        state = GameState(mon=MonState(1, [1], 0, 0, "common", False, "Hardy"))
+        self.assertIsNone(plan_rare_candy_use(state, 3))
+        state.inventory["rare_candy"] = 1
+        self.assertIsNone(plan_rare_candy_use(state, 0))
+        self.assertEqual(plan_rare_candy_use(state, 3).count, 1)
+
     def test_limit_candy_is_once_per_window_after_initial_seed(self):
         state = GameState()
         first = {"claude": ProviderLimits(provider="claude", windows=[
@@ -334,14 +366,35 @@ class StateTests(unittest.TestCase):
         self.assertEqual(grants, ["candy:5:codex:Luna Reserve"])
         self.assertEqual(state.inventory["rare_candy"], 5)
 
-    def test_fresh_egg_discards_active_ungraduated_catch(self):
+    def test_fresh_egg_keeps_reached_forms_as_released_not_completed(self):
         state = GameState(install_baseline_set=True, used_since_install=2_000_000_000)
         apply_usage(state, EGG_HATCH_THRESHOLD, FakeAPI())
         self.assertEqual(len(state.catches), 1)
         ok, _ = buy_egg(state, None)
         self.assertTrue(ok)
         self.assertIsNone(state.mon)
-        self.assertEqual(state.catches, [])
+        self.assertEqual(state.catches[0].path_ids, [1])
+        self.assertIsNotNone(state.catches[0].released_at)
+        self.assertEqual(state.catches[0].species_id, 1)
+        self.assertEqual(state.spent_tokens, 1_000_000_000)
+
+    def test_egg_cannot_be_replaced_while_incubating_or_bought_with_invalid_tier(self):
+        state = GameState(egg_usage=2_000_000, used_since_install=10_000_000_000)
+        self.assertFalse(buy_egg(state, "rare")[0])
+        self.assertEqual((state.egg_usage, state.spent_tokens), (2_000_000, 0))
+        state.mon = MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy")
+        self.assertFalse(buy_egg(state, "legendary")[0])
+        self.assertEqual(state.spent_tokens, 0)
+
+    def test_released_catch_round_trips_with_backward_compatible_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = StateStore(Path(tmp) / "state.json")
+            state = GameState(catches=[CatchRecord(1, 1, [1], "common", True, "Hardy", "2026-09-28", "2026-09-28")])
+            store.save(state)
+            self.assertEqual(store.load().catches[0].released_at, "2026-09-28")
+            raw = json.loads(store.path.read_text(encoding="utf-8"))
+            del raw["catches"][0]["released_at"]
+            self.assertIsNone(StateStore.parse_state(raw).catches[0].released_at)
 
     def test_state_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -642,6 +695,42 @@ class CodexLimitsTests(unittest.TestCase):
         self.assertTrue(proc.terminated)
 
 
+class HatchCollectionTests(unittest.TestCase):
+    @staticmethod
+    def node(species_id, children=()):
+        return {
+            "species": {"url": f"https://pokeapi.co/api/v2/pokemon-species/{species_id}/"},
+            "evolves_to": list(children),
+        }
+
+    def test_unfinished_evolution_branch_is_preferred(self):
+        with tempfile.TemporaryDirectory() as folder:
+            client = PokeAPIClient(Path(folder))
+            root = self.node(1, [self.node(2), self.node(3)])
+            with patch("poketokenbar_windows.pokemon.random.choice", side_effect=lambda choices: choices[0]):
+                self.assertEqual(client._random_path(root, completed_finals={(1, 2)}), [1, 3])
+                self.assertEqual(client._random_path(root, completed_finals={(1, 2), (1, 3)}), [1, 2])
+
+    def test_completed_base_has_half_its_capture_weight(self):
+        species = {
+            "capture_rate": 45,
+            "evolves_from_species": None,
+            "evolution_chain": {"url": "https://pokeapi.co/api/v2/evolution-chain/1/"},
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            client = PokeAPIClient(Path(folder))
+            with (
+                patch.object(client, "species", return_value=species) as get_species,
+                patch.object(client, "evolution_chain", return_value={"chain": self.node(1)}),
+                patch("poketokenbar_windows.pokemon.random.randint", side_effect=[1, 30, 1, 21]),
+                patch("poketokenbar_windows.pokemon.random.choice", side_effect=lambda choices: choices[0]),
+                patch("poketokenbar_windows.pokemon.random.randrange", return_value=1),
+            ):
+                result = client.hatch(max_attempts=2, completed_finals={(1, 1)})
+            self.assertEqual(result.base_id, 1)
+            self.assertEqual(result.rarity, "rare")
+            self.assertEqual(get_species.call_count, 2)
+
 class PokemonAssetTests(unittest.TestCase):
     def test_item_sprite_uses_validated_runtime_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -915,6 +1004,22 @@ class MonthTrendTests(unittest.TestCase):
 
 
 class RepeatGrowthTests(unittest.TestCase):
+    def test_hatch_receives_only_completed_final_lines(self):
+        class TrackingAPI(FakeAPI):
+            completed_finals = None
+
+            def hatch(self, minimum_rarity=None, shiny_charm=False, completed_finals=None):
+                self.completed_finals = completed_finals
+                return super().hatch(minimum_rarity, shiny_charm, completed_finals)
+
+        state = GameState(catches=[
+            CatchRecord(3, 1, [1, 2, 3], "common", False, "Hardy", "2026-09-01"),
+            CatchRecord(6, 4, [4, 5, 6], "common", False, "Hardy", "2026-09-01", released_at="2026-09-02"),
+        ])
+        api = TrackingAPI()
+        apply_usage(state, EGG_HATCH_THRESHOLD, api)
+        self.assertEqual(api.completed_finals, {(1, 3)})
+
     def test_repeat_base_species_gets_persistent_half_threshold(self):
         state = GameState(catches=[CatchRecord(3, 1, [1, 2, 3], "common", False, "Hardy", "2026-09-01")])
         apply_usage(state, EGG_HATCH_THRESHOLD, FakeAPI())
@@ -952,7 +1057,7 @@ class RepeatGrowthTests(unittest.TestCase):
             path.write_text(json.dumps(old_release_save), encoding="utf-8")
             self.assertTrue(store.load().mon.has_growth_boost)
 
-    def test_discarded_unfinished_catch_does_not_unlock_boost(self):
+    def test_released_unfinished_catch_does_not_unlock_boost(self):
         state = GameState(
             mon=MonState(1, [1, 2, 3], 0, 0, "common", False, "Hardy"),
             catches=[CatchRecord(1, 1, [1, 2, 3], "common", False, "Hardy", "2026-09-01")],
@@ -961,6 +1066,8 @@ class RepeatGrowthTests(unittest.TestCase):
         self.assertTrue(buy_egg(state, None)[0])
         apply_usage(state, EGG_HATCH_THRESHOLD, FakeAPI())
         self.assertFalse(state.mon.has_growth_boost)
+        self.assertEqual(len(state.catches), 2)
+        self.assertIsNotNone(state.catches[0].released_at)
 
     def test_legacy_active_pokemon_defaults_to_normal_growth(self):
         with tempfile.TemporaryDirectory() as folder:
