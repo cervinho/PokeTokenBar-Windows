@@ -43,6 +43,20 @@ stage and explain why buying is disabled. The bundled Codex locator change is
 specific to `ChatGPT.app` on macOS; the status-bar sprite optimization and comment
 cleanup do not add Windows-visible features.
 
+## Collection and growth behavior in Windows 1.1.0
+
+PR #15 adapts the following scoped behaviors from upstream commit
+`42df4e61590fd049b299ec21c349f6d84f93a96a` (2026-09-28):
+
+- Buying an egg releases the active attempt, keeps reached forms in the Pokédex, and does not grant final-completion credit. An incubating egg cannot be replaced.
+- Graduating the final stage grants completion credit and starts another egg automatically. Repeated release records do not erase earlier credit.
+- Completed bases have half their usual hatch weight; branching evolution plans prefer unfinished final forms. Windows uses its existing REST/cache rejection sampler for those weights rather than upstream's indexed cumulative sampler.
+- A later hatch of a completed base retains the double growth speed. Rare Candy batches use whole candies, carry EXP across evolution stages and discard excess only after final graduation; eggs cannot consume candy.
+- Captures keeps each attempt's Raising/Released state without a redundant Completed badge. Windows adds an independent Shiny filter and an icon selector that only switches between appearances actually caught.
+
+This is a focused game/UI comparison, not a full review of the upstream release.
+The latest fully reviewed release marker below remains unchanged.
+
 ## Release audit ledger
 
 **Latest upstream release fully reviewed: [v2.5.4](https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.4), commit `09fd6003dde877a2a546d261d08a43562fcc572b`, dated 2026-09-12.** Reviewed on 2026-09-26 against the previous documented checkpoint `5f1ef524a104dceee681a21c13a92a7404c6f176` (2026-09-03). The full first-parent range `5f1ef52..09fd600` contains the 25 changes below. “Reviewed” means assessed for this Windows port, not that the two applications have feature parity.

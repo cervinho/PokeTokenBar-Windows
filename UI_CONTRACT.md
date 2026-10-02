@@ -13,6 +13,7 @@ This document records user-visible behavior that must survive visual redesigns a
 
 - The application header is PokeTokenBar; Home does not repeat it as a page heading.
 - Companion progress shows absolute token progress (`current / target`) and a separate level label. The level prefix is `Lv.` in English and `Nv.` in Spanish and Galician.
+- Once loaded, the Home sprite stays visible and animating during automatic, button and F5 refreshes, even without usage provider rows. A reveal follows an actual companion species, egg or Shiny appearance change; unchanged results, progression and language changes do not replay it.
 - Provider usage appears above official limits. Its height follows the visible provider count up to a maximum; it must not scroll while all rows fit, and it must stop at the final row when scrolling is necessary. Official limits receive the remaining space.
 - Every timed official limit can show a depletion forecast. A missing forecast must have an explanation when the calculation lacks enough data.
 - Codex reset credits show the available count and the earliest expiry. A UI change must not hide this data.
@@ -23,7 +24,7 @@ This document records user-visible behavior that must survive visual redesigns a
 ## Collection and settings
 
 - Pokédex cards use most of their image area. Selecting a card opens that companion as a large animated sprite; Previous and Next browse the full filtered collection across page boundaries, Left/Right do the same while Collection is focused, and Back restores the matching grid page. The grid pages fit the visible area without page scrolling.
-- Catch history shows one large sprite per evolution stage, arrows between stages, a sentence stating whether the line is complete, clear ownership labels, and the active Raising badge aligned to the right. The header does not duplicate the current stage sprite.
+- Catch history shows one large sprite per evolution stage, arrows between stages, progress copy and clear ownership labels. Active attempts have a Raising badge, released attempts have a neutral Released badge, and graduated attempts have no redundant Completed badge. Repeated attempts remain separate records; the Pokédex preserves the union of reached forms. The header does not duplicate the current stage sprite.
 - The desktop representative setting belongs to the Desktop pet group and explains that it controls the tray icon and floating desktop pet.
 - Representative choices include the Pokédex number and name. The Pokédex marks the current desktop representative and lets a collected variant become the representative from its animated detail view. Following the active companion remains an explicit option there and in Settings.
 - Capture summaries describe completion or stage without repeating the Pokémon name already shown in the card.
@@ -36,7 +37,7 @@ This document records user-visible behavior that must survive visual redesigns a
 - The main window uses one integrated, theme-aware header with the app identity, status, native-equivalent minimize/maximize/close actions, drag, double-click maximize, edge resizing with an 8 px invisible hit area and 12 px corners mapped to the correct Qt edges, and Windows snapping when dragged to a screen edge. The maximize icon must repaint as a restore icon while maximized, and title-bar dragging must delegate to Windows even from the maximized state so restoring and moving remain available. It must not expose a separate light system title bar in dark mode.
 - Page descriptions live in the navigation tooltips and accessible descriptions instead of consuming a row inside every page.
 - Home keeps Refresh inside the companion card beside the prominent Pokémon name, without a redundant Current companion heading. Evolution details use a quieter, readable secondary tone, and the three companion text lines use relaxed spacing instead of collecting at the top. The animated companion sits in a large square frame with equal inner margins, and all progress content stays inside the card.
-- Collection presents Pokédex and Captures as primary tabs without an enclosing panel. Pokédex filters and page position share a secondary row because pagination applies to that filtered view.
+- Collection presents Pokédex and Captures as primary tabs without an enclosing panel. Compact rarity filters and an independent icon-only Shiny toggle share one row at minimum width. The page position sits centered between Previous and Next below the grid.
 - Bag and Shop share the same slim wallet strip in the same position so the balance feels persistent while switching between them.
 - Body copy must remain readable at the minimum window size. Ordinary labels are at least 12 px where the layout permits it; captions and metadata are at least 10 px.
 
